@@ -3,6 +3,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { fetch } from "@tauri-apps/plugin-http";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { getVersion } from "@tauri-apps/api/app";
 
 interface RefImage {
   file: File;
@@ -21,6 +23,7 @@ const apiKey = ref("");
 const model = ref("gpt-image-2");
 // auto: 多参考图自动改走 chat 接口(部分中转的 edits 接口只支持单图)
 const apiMode = ref<"auto" | "images" | "chat">("auto");
+const autoCheckUpdate = ref(true);
 const size = ref("auto");
 const count = ref(1);
 
@@ -51,6 +54,84 @@ async function openLogFile() {
   }
 }
 
+// --- 检查更新 ---
+const RELEASES_PAGE = "https://github.com/Gu-ZT/GugleAI/releases";
+const UPDATE_API = "https://api.github.com/repos/Gu-ZT/GugleAI/releases?per_page=1";
+// gh-proxy 不代理 api.github.com,回退用它拉 main 分支的 tauri.conf.json 读版本号
+const UPDATE_FALLBACK =
+  "https://gh-proxy.com/https://raw.githubusercontent.com/Gu-ZT/GugleAI/main/src-tauri/tauri.conf.json";
+
+const updateStatus = ref("");
+const updateUrl = ref("");
+const checkingUpdate = ref(false);
+
+function parseVer(v: string): number[] {
+  return v.replace(/^v/, "").split("+")[0].split(".").map((n) => parseInt(n, 10) || 0);
+}
+
+function isNewer(remote: string, current: string): boolean {
+  const r = parseVer(remote);
+  const c = parseVer(current);
+  for (let i = 0; i < 3; i++) {
+    if ((r[i] ?? 0) !== (c[i] ?? 0)) return (r[i] ?? 0) > (c[i] ?? 0);
+  }
+  return false;
+}
+
+async function fetchLatestVersion(): Promise<{ version: string; url: string }> {
+  try {
+    const resp = await fetch(UPDATE_API, {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+    if (resp.ok) {
+      const releases = await resp.json();
+      if (Array.isArray(releases) && releases[0]?.tag_name) {
+        return { version: releases[0].tag_name, url: releases[0].html_url ?? RELEASES_PAGE };
+      }
+    }
+    throw new Error(`GitHub API ${resp.status}`);
+  } catch (e) {
+    log("INFO", `GitHub API 不可达(${e}),改用 gh-proxy 回退`);
+    const resp = await fetch(UPDATE_FALLBACK);
+    if (!resp.ok) throw new Error(`代理请求失败 (${resp.status})`);
+    const conf = await resp.json();
+    if (!conf.version) throw new Error("代理响应中没有版本号");
+    return { version: conf.version, url: RELEASES_PAGE };
+  }
+}
+
+async function checkUpdate(manual: boolean) {
+  if (checkingUpdate.value) return;
+  checkingUpdate.value = true;
+  updateUrl.value = "";
+  if (manual) updateStatus.value = "检查中...";
+  try {
+    const current = await getVersion();
+    const latest = await fetchLatestVersion();
+    log("INFO", `检查更新: 当前=${current} 最新=${latest.version}`);
+    if (isNewer(latest.version, current)) {
+      updateStatus.value = `发现新版本 ${latest.version}（当前 ${current}）`;
+      updateUrl.value = latest.url;
+    } else {
+      updateStatus.value = manual ? `已是最新版本（${current}）` : "";
+    }
+  } catch (e: any) {
+    const msg = `检查更新失败: ${e?.message ?? e}`;
+    log("ERROR", msg);
+    if (manual) updateStatus.value = msg;
+  } finally {
+    checkingUpdate.value = false;
+  }
+}
+
+async function openDownloadPage() {
+  try {
+    await openUrl(updateUrl.value || RELEASES_PAGE);
+  } catch (e: any) {
+    error.value = `打开浏览器失败: ${e?.message ?? e}`;
+  }
+}
+
 const hintText = computed(() => {
   const n = refImages.value.length;
   const useChat = apiMode.value === "chat" || (apiMode.value === "auto" && n > 1);
@@ -67,16 +148,18 @@ onMounted(() => {
       apiKey.value = s.apiKey ?? "";
       model.value = s.model ?? model.value;
       apiMode.value = s.apiMode ?? "auto";
+      autoCheckUpdate.value = s.autoCheckUpdate ?? true;
     } catch {}
   }
   window.addEventListener("paste", onPaste);
+  if (autoCheckUpdate.value) checkUpdate(false);
 });
 
 onUnmounted(() => {
   window.removeEventListener("paste", onPaste);
 });
 
-watch([endpoint, apiKey, model, apiMode], () => {
+watch([endpoint, apiKey, model, apiMode, autoCheckUpdate], () => {
   localStorage.setItem(
     SETTINGS_KEY,
     JSON.stringify({
@@ -84,6 +167,7 @@ watch([endpoint, apiKey, model, apiMode], () => {
       apiKey: apiKey.value,
       model: model.value,
       apiMode: apiMode.value,
+      autoCheckUpdate: autoCheckUpdate.value,
     })
   );
 });
@@ -394,7 +478,20 @@ async function saveImage(img: ResultImage) {
         <input v-model.number="count" type="number" min="1" max="10" />
       </label>
 
-      <button class="log-btn" @click="showLogs = !showLogs">
+      <h2>更新</h2>
+      <label class="checkbox-row">
+        <input v-model="autoCheckUpdate" type="checkbox" />
+        <span>启动时自动检查更新</span>
+      </label>
+      <button class="log-btn" :disabled="checkingUpdate" @click="checkUpdate(true)">
+        {{ checkingUpdate ? "检查中..." : "检查更新" }}
+      </button>
+      <p v-if="updateStatus" class="update-status">
+        {{ updateStatus }}
+        <a v-if="updateUrl" href="#" @click.prevent="openDownloadPage">前往下载</a>
+      </p>
+
+      <button class="log-btn view-log" @click="showLogs = !showLogs">
         {{ showLogs ? "隐藏日志" : "查看日志" }}
       </button>
     </aside>
@@ -649,13 +746,44 @@ textarea {
 
 .log-btn {
   font: inherit;
-  margin-top: auto;
   padding: 8px;
   border: 1px solid #3f3f46;
   border-radius: 6px;
   background: #27272a;
   color: #a1a1aa;
   cursor: pointer;
+}
+
+.log-btn.view-log {
+  margin-top: auto;
+}
+
+.log-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: #6366f1;
+}
+
+.update-status {
+  margin: 0;
+  font-size: 12px;
+  color: #a1a1aa;
+  word-break: break-all;
+}
+
+.update-status a {
+  color: #818cf8;
 }
 
 .log-btn:hover {
