@@ -115,8 +115,10 @@ async function generate() {
       if (item.b64_json) {
         results.value.push({ base64: item.b64_json, mime: "image/png" });
       } else if (item.url) {
-        // 部分中转服务返回相对路径,需解析到 API 端点的 origin 上
-        const imgUrl = new URL(item.url, base + "/").href;
+        // 部分中转服务返回相对路径,需拼接到配置的 API 端点上
+        const imgUrl = /^https?:\/\//i.test(item.url)
+          ? item.url
+          : base + (item.url.startsWith("/") ? "" : "/") + item.url;
         const imgResp = await fetch(imgUrl);
         if (!imgResp.ok) {
           throw new Error(`下载图片失败 (${imgResp.status}): ${imgUrl}`);
