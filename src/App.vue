@@ -32,6 +32,25 @@ const error = ref("");
 const fileInput = ref<HTMLInputElement>();
 const dragOver = ref(false);
 
+const logs = ref<string[]>([]);
+const showLogs = ref(false);
+const logFilePath = ref("");
+
+function log(level: "INFO" | "ERROR", msg: string) {
+  const line = `[${new Date().toLocaleString()}] [${level}] ${msg}`;
+  logs.value.push(line);
+  if (logs.value.length > 500) logs.value.splice(0, logs.value.length - 500);
+  invoke("append_log", { line }).catch(() => {});
+}
+
+async function openLogFile() {
+  try {
+    logFilePath.value = await invoke<string>("show_log_file");
+  } catch (e: any) {
+    error.value = `打开日志失败: ${e?.message ?? e}`;
+  }
+}
+
 const hintText = computed(() => {
   const n = refImages.value.length;
   const useChat = apiMode.value === "chat" || (apiMode.value === "auto" && n > 1);
@@ -152,6 +171,10 @@ async function generate() {
   try {
     const useChat =
       apiMode.value === "chat" || (apiMode.value === "auto" && refImages.value.length > 1);
+    log(
+      "INFO",
+      `开始生成: 端点=${base} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value}`
+    );
     if (useChat) {
       await generateViaChat(base, headers);
     } else {
@@ -160,8 +183,10 @@ async function generate() {
     if (results.value.length === 0) {
       throw new Error("响应中没有图片数据");
     }
+    log("INFO", `生成成功: ${results.value.length} 张图片`);
   } catch (e: any) {
     error.value = e?.message ?? String(e);
+    log("ERROR", error.value);
   } finally {
     loading.value = false;
   }
@@ -269,6 +294,7 @@ async function downloadResult(base: string, url: string) {
   }
   let lastStatus = 0;
   for (const imgUrl of candidates) {
+    log("INFO", `下载图片: ${imgUrl}`);
     const imgResp = await fetch(imgUrl);
     if (imgResp.ok) {
       const buf = await imgResp.arrayBuffer();
@@ -279,17 +305,20 @@ async function downloadResult(base: string, url: string) {
       return;
     }
     lastStatus = imgResp.status;
+    log("ERROR", `下载失败 (${imgResp.status}): ${imgUrl}`);
   }
   throw new Error(`下载图片失败 (${lastStatus}): ${candidates.join(" 或 ")}`);
 }
 
 async function parseResponse(resp: Response): Promise<any> {
   const text = await resp.text();
+  log("INFO", `响应: ${resp.status} ${resp.url} 长度=${text.length}`);
   if (!resp.ok) {
     let msg = text;
     try {
       msg = JSON.parse(text)?.error?.message ?? text;
     } catch {}
+    log("ERROR", `响应体: ${text.slice(0, 500)}`);
     throw new Error(`请求失败 (${resp.status}): ${msg}`);
   }
   try {
@@ -364,6 +393,10 @@ async function saveImage(img: ResultImage) {
         数量
         <input v-model.number="count" type="number" min="1" max="10" />
       </label>
+
+      <button class="log-btn" @click="showLogs = !showLogs">
+        {{ showLogs ? "隐藏日志" : "查看日志" }}
+      </button>
     </aside>
 
     <section class="content">
@@ -408,6 +441,15 @@ async function saveImage(img: ResultImage) {
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
+
+      <div v-if="showLogs" class="log-panel">
+        <div class="log-header">
+          <span>运行日志（本次会话 {{ logs.length }} 条）</span>
+          <button @click="openLogFile">打开日志文件</button>
+        </div>
+        <p v-if="logFilePath" class="log-path">{{ logFilePath }}</p>
+        <pre class="log-body">{{ logs.length ? logs.join("\n") : "暂无日志" }}</pre>
+      </div>
 
       <div v-if="results.length" class="results">
         <div v-for="(img, i) in results" :key="i" class="result-card">
@@ -601,6 +643,76 @@ textarea {
   background: #7f1d1d55;
   border: 1px solid #b91c1c;
   color: #fca5a5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-btn {
+  font: inherit;
+  margin-top: auto;
+  padding: 8px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #27272a;
+  color: #a1a1aa;
+  cursor: pointer;
+}
+
+.log-btn:hover {
+  border-color: #6366f1;
+  color: #e4e4e7;
+}
+
+.log-panel {
+  border: 1px solid #3f3f46;
+  border-radius: 8px;
+  background: #1f1f23;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2e2e33;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+.log-header button {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #27272a;
+  color: #e4e4e7;
+  cursor: pointer;
+}
+
+.log-header button:hover {
+  border-color: #6366f1;
+}
+
+.log-path {
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #71717a;
+  word-break: break-all;
+}
+
+.log-body {
+  margin: 0;
+  padding: 8px 12px;
+  overflow: auto;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #d4d4d8;
   white-space: pre-wrap;
   word-break: break-all;
 }
