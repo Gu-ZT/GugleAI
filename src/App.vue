@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { fetch } from "@tauri-apps/plugin-http";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -28,6 +28,7 @@ const results = ref<ResultImage[]>([]);
 const loading = ref(false);
 const error = ref("");
 const fileInput = ref<HTMLInputElement>();
+const dragOver = ref(false);
 
 onMounted(() => {
   const saved = localStorage.getItem(SETTINGS_KEY);
@@ -39,6 +40,11 @@ onMounted(() => {
       model.value = s.model ?? model.value;
     } catch {}
   }
+  window.addEventListener("paste", onPaste);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("paste", onPaste);
 });
 
 watch([endpoint, apiKey, model], () => {
@@ -48,12 +54,33 @@ watch([endpoint, apiKey, model], () => {
   );
 });
 
+function addFile(file: File) {
+  if (!file.type.startsWith("image/")) return;
+  refImages.value.push({ file, previewUrl: URL.createObjectURL(file) });
+}
+
 function addImages(e: Event) {
   const input = e.target as HTMLInputElement;
   for (const file of input.files ?? []) {
-    refImages.value.push({ file, previewUrl: URL.createObjectURL(file) });
+    addFile(file);
   }
   input.value = "";
+}
+
+function onDrop(e: DragEvent) {
+  dragOver.value = false;
+  for (const file of e.dataTransfer?.files ?? []) {
+    addFile(file);
+  }
+}
+
+function onPaste(e: ClipboardEvent) {
+  for (const item of e.clipboardData?.items ?? []) {
+    if (item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      if (file) addFile(file);
+    }
+  }
 }
 
 function removeImage(index: number) {
@@ -212,7 +239,15 @@ async function saveImage(img: ResultImage) {
             <img :src="img.previewUrl" :alt="img.file.name" :title="img.file.name" />
             <button class="remove" @click="removeImage(i)">×</button>
           </div>
-          <button class="add-ref" @click="fileInput?.click()" title="添加参考图">＋</button>
+          <button
+            class="add-ref"
+            :class="{ 'drag-over': dragOver }"
+            title="添加参考图（可拖拽文件或 Ctrl+V 粘贴）"
+            @click="fileInput?.click()"
+            @dragover.prevent="dragOver = true"
+            @dragleave="dragOver = false"
+            @drop.prevent="onDrop"
+          >＋</button>
           <input
             ref="fileInput"
             type="file"
@@ -383,7 +418,8 @@ textarea {
   cursor: pointer;
 }
 
-.add-ref:hover {
+.add-ref:hover,
+.add-ref.drag-over {
   border-color: #6366f1;
   color: #6366f1;
 }
