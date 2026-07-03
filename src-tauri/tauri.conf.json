@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "gugle-ai",
-        "width": 800,
-        "height": 600
+        "title": "GugleAI 图像生成",
+        "width": 1100,
+        "height": 760
       }
     ],
     "security": {
