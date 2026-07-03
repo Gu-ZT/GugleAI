@@ -3,6 +3,17 @@ name: Release
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "vite.config.ts"
+      - "tsconfig.json"
+      - "tsconfig.node.json"
+      - ".github/workflows/release.yml"
   release:
     types: [published]
 
@@ -126,3 +137,64 @@ jobs:
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           args: ${{ matrix.args }}
+
+  # 所有平台构建完成后,在 release 描述末尾生成按平台分类的下载表格
+  update-release-notes:
+    needs: [prepare, build]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Append download table to release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/$REPO/releases/$RELEASE_ID" > release.json
+          node <<'EOF'
+          const fs = require("fs");
+          const rel = JSON.parse(fs.readFileSync("release.json", "utf8"));
+
+          const rules = [
+            [/_x64-setup\.exe$/,      "Windows", "x86_64",                "NSIS 安装包"],
+            [/_x86-setup\.exe$/,      "Windows", "x86 (32位)",            "NSIS 安装包"],
+            [/_arm64-setup\.exe$/,    "Windows", "arm64",                 "NSIS 安装包"],
+            [/_x64[^/]*\.msi$/,       "Windows", "x86_64",                "MSI 安装包"],
+            [/_x86[^/]*\.msi$/,       "Windows", "x86 (32位)",            "MSI 安装包"],
+            [/_amd64\.deb$/,          "Linux",   "x86_64",                "deb"],
+            [/_arm64\.deb$/,          "Linux",   "arm64",                 "deb"],
+            [/\.x86_64\.rpm$/,        "Linux",   "x86_64",                "rpm"],
+            [/\.aarch64\.rpm$/,       "Linux",   "arm64",                 "rpm"],
+            [/_amd64\.AppImage$/,     "Linux",   "x86_64",                "AppImage"],
+            [/_aarch64\.AppImage$/,   "Linux",   "arm64",                 "AppImage"],
+            [/_x64\.dmg$/,            "macOS",   "Intel (x86_64)",        "dmg"],
+            [/_aarch64\.dmg$/,        "macOS",   "Apple Silicon (arm64)", "dmg"],
+            [/x64\.app\.tar\.gz$/,    "macOS",   "Intel (x86_64)",        "app 压缩包"],
+            [/aarch64\.app\.tar\.gz$/,"macOS",   "Apple Silicon (arm64)", "app 压缩包"],
+          ];
+
+          const rows = rel.assets
+            .map((a) => {
+              const i = rules.findIndex(([re]) => re.test(a.name));
+              const [, os, arch, kind] = i === -1 ? [null, "其他", "-", "-"] : rules[i];
+              return { order: i === -1 ? rules.length : i, os, arch, kind, a };
+            })
+            .sort((x, y) => x.order - y.order)
+            .map((r) => `| ${r.os} | ${r.arch} | ${r.kind} | [${r.a.name}](${r.a.browser_download_url}) |`);
+
+          const marker = "## 下载";
+          const table = [
+            marker, "",
+            "| 平台 | 架构 | 格式 | 下载 |",
+            "| --- | --- | --- | --- |",
+            ...rows,
+          ].join("\n");
+
+          // 重跑时先移除旧表格,避免重复追加
+          let body = rel.body ?? "";
+          const idx = body.indexOf(marker);
+          if (idx !== -1) body = body.slice(0, idx).trimEnd();
+          body = (body ? body + "\n\n" : "") + table + "\n";
+          fs.writeFileSync("body.md", body);
+          EOF
+          gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -F body=@body.md
