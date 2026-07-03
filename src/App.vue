@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { fetch } from "@tauri-apps/plugin-http";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -19,6 +19,8 @@ const SETTINGS_KEY = "gugle-ai-settings";
 const endpoint = ref("https://api.openai.com/v1");
 const apiKey = ref("");
 const model = ref("gpt-image-2");
+// auto: 多参考图自动改走 chat 接口(部分中转的 edits 接口只支持单图)
+const apiMode = ref<"auto" | "images" | "chat">("auto");
 const size = ref("auto");
 const count = ref(1);
 
@@ -30,6 +32,13 @@ const error = ref("");
 const fileInput = ref<HTMLInputElement>();
 const dragOver = ref(false);
 
+const hintText = computed(() => {
+  const n = refImages.value.length;
+  const useChat = apiMode.value === "chat" || (apiMode.value === "auto" && n > 1);
+  const api = useChat ? "Chat 接口" : n > 0 ? "图像编辑接口" : "文生图接口";
+  return n > 0 ? `${n} 张参考图 · ${api}` : `无参考图 · ${api}`;
+});
+
 onMounted(() => {
   const saved = localStorage.getItem(SETTINGS_KEY);
   if (saved) {
@@ -38,6 +47,7 @@ onMounted(() => {
       endpoint.value = s.endpoint ?? endpoint.value;
       apiKey.value = s.apiKey ?? "";
       model.value = s.model ?? model.value;
+      apiMode.value = s.apiMode ?? "auto";
     } catch {}
   }
   window.addEventListener("paste", onPaste);
@@ -47,10 +57,15 @@ onUnmounted(() => {
   window.removeEventListener("paste", onPaste);
 });
 
-watch([endpoint, apiKey, model], () => {
+watch([endpoint, apiKey, model, apiMode], () => {
   localStorage.setItem(
     SETTINGS_KEY,
-    JSON.stringify({ endpoint: endpoint.value, apiKey: apiKey.value, model: model.value })
+    JSON.stringify({
+      endpoint: endpoint.value,
+      apiKey: apiKey.value,
+      model: model.value,
+      apiMode: apiMode.value,
+    })
   );
 });
 
@@ -74,7 +89,37 @@ function onDrop(e: DragEvent) {
   }
 }
 
+// 识别粘贴的连接配置,支持:
+// 1. {"_type":"newapi_channel_conn","key":"...","url":"..."}
+// 2. Codex CLI config.toml(取 [model_providers.*] 里的 base_url,无 key)
+function tryApplyConnConfig(text: string): boolean {
+  if (text.startsWith("{") && text.includes("newapi_channel_conn")) {
+    try {
+      const conn = JSON.parse(text);
+      if (conn.url && conn.key) {
+        endpoint.value = conn.url;
+        apiKey.value = conn.key;
+        return true;
+      }
+    } catch {}
+  }
+  if (/^\[model_providers\.[^\]]+\]/m.test(text)) {
+    const m = text.match(/^\[model_providers\.[^\]]+\][^[]*?^\s*base_url\s*=\s*"([^"]+)"/ms);
+    if (m) {
+      endpoint.value = m[1];
+      return true;
+    }
+  }
+  return false;
+}
+
 function onPaste(e: ClipboardEvent) {
+  const text = e.clipboardData?.getData("text/plain")?.trim() ?? "";
+  if (text && tryApplyConnConfig(text)) {
+    error.value = "";
+    e.preventDefault();
+    return;
+  }
   for (const item of e.clipboardData?.items ?? []) {
     if (item.type.startsWith("image/")) {
       const file = item.getAsFile();
@@ -97,65 +142,20 @@ async function generate() {
   error.value = "";
   results.value = [];
 
-  const base = endpoint.value.replace(/\/+$/, "");
+  // 允许填裸域名(如 https://ai.example.cn),没有版本路径时自动补 /v1
+  let base = endpoint.value.trim().replace(/\/+$/, "");
+  if (!/\/v\d+(\/|$)/.test(base)) base += "/v1";
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey.value}`,
   };
 
   try {
-    let resp: Response;
-    if (refImages.value.length > 0) {
-      // 带参考图走 edits 接口,multipart 上传任意数量的 image[]
-      const form = new FormData();
-      form.append("model", model.value);
-      form.append("prompt", prompt.value);
-      form.append("n", String(count.value));
-      if (size.value !== "auto") form.append("size", size.value);
-      for (const img of refImages.value) {
-        form.append("image[]", img.file, img.file.name);
-      }
-      resp = await fetch(`${base}/images/edits`, { method: "POST", headers, body: form });
+    const useChat =
+      apiMode.value === "chat" || (apiMode.value === "auto" && refImages.value.length > 1);
+    if (useChat) {
+      await generateViaChat(base, headers);
     } else {
-      resp = await fetch(`${base}/images/generations`, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: model.value,
-          prompt: prompt.value,
-          n: count.value,
-          ...(size.value !== "auto" ? { size: size.value } : {}),
-        }),
-      });
-    }
-
-    const text = await resp.text();
-    if (!resp.ok) {
-      let msg = text;
-      try {
-        msg = JSON.parse(text)?.error?.message ?? text;
-      } catch {}
-      throw new Error(`请求失败 (${resp.status}): ${msg}`);
-    }
-
-    const data = JSON.parse(text);
-    for (const item of data.data ?? []) {
-      if (item.b64_json) {
-        results.value.push({ base64: item.b64_json, mime: "image/png" });
-      } else if (item.url) {
-        // 部分中转服务返回相对路径,需拼接到配置的 API 端点上
-        const imgUrl = /^https?:\/\//i.test(item.url)
-          ? item.url
-          : base + (item.url.startsWith("/") ? "" : "/") + item.url;
-        const imgResp = await fetch(imgUrl);
-        if (!imgResp.ok) {
-          throw new Error(`下载图片失败 (${imgResp.status}): ${imgUrl}`);
-        }
-        const buf = await imgResp.arrayBuffer();
-        results.value.push({
-          base64: bufToBase64(buf),
-          mime: imgResp.headers.get("content-type") ?? "image/png",
-        });
-      }
+      await generateViaImages(base, headers);
     }
     if (results.value.length === 0) {
       throw new Error("响应中没有图片数据");
@@ -164,6 +164,139 @@ async function generate() {
     error.value = e?.message ?? String(e);
   } finally {
     loading.value = false;
+  }
+}
+
+// 标准 OpenAI 图像接口: 无参考图走 generations,有参考图走 edits
+async function generateViaImages(base: string, headers: Record<string, string>) {
+  let resp: Response;
+  if (refImages.value.length > 0) {
+    const form = new FormData();
+    form.append("model", model.value);
+    form.append("prompt", prompt.value);
+    form.append("n", String(count.value));
+    if (size.value !== "auto") form.append("size", size.value);
+    for (const img of refImages.value) {
+      form.append("image[]", img.file, img.file.name);
+    }
+    resp = await fetch(`${base}/images/edits`, { method: "POST", headers, body: form });
+  } else {
+    resp = await fetch(`${base}/images/generations`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: model.value,
+        prompt: prompt.value,
+        n: count.value,
+        ...(size.value !== "auto" ? { size: size.value } : {}),
+      }),
+    });
+  }
+
+  const data = await parseResponse(resp);
+  for (const item of data.data ?? []) {
+    if (item.b64_json) {
+      results.value.push({ base64: item.b64_json, mime: "image/png" });
+    } else if (item.url) {
+      await downloadResult(base, item.url);
+    }
+  }
+}
+
+// chat/completions 兼容链路: 参考图作为 image_url 放入消息,
+// 生成的图从返回内容里的 data URL 或 http URL 中提取
+async function generateViaChat(base: string, headers: Record<string, string>) {
+  const content: any[] = [{ type: "text", text: prompt.value }];
+  for (const img of refImages.value) {
+    const buf = await img.file.arrayBuffer();
+    content.push({
+      type: "image_url",
+      image_url: { url: `data:${img.file.type || "image/png"};base64,${bufToBase64(buf)}` },
+    });
+  }
+
+  const resp = await fetch(`${base}/chat/completions`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: model.value,
+      messages: [{ role: "user", content }],
+    }),
+  });
+
+  const data = await parseResponse(resp);
+  for (const choice of data.choices ?? []) {
+    const msg = choice.message ?? {};
+    // 部分服务把图放在 message.images 数组里
+    for (const img of msg.images ?? []) {
+      const url = img?.image_url?.url ?? img?.url;
+      if (url) await collectChatImage(base, url);
+    }
+    const text: string = typeof msg.content === "string" ? msg.content : "";
+    for (const m of text.matchAll(/data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)/g)) {
+      results.value.push({ base64: m[2], mime: m[1] });
+    }
+    // 内容里没有内嵌 base64 时,再找 markdown 图片链接
+    if (results.value.length === 0) {
+      for (const m of text.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g)) {
+        await collectChatImage(base, m[1]);
+      }
+    }
+  }
+}
+
+async function collectChatImage(base: string, url: string) {
+  const dataUrl = url.match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+  if (dataUrl) {
+    results.value.push({ base64: dataUrl[2], mime: dataUrl[1] });
+  } else {
+    await downloadResult(base, url);
+  }
+}
+
+async function downloadResult(base: string, url: string) {
+  // 相对路径先拼完整端点,404 再回退到域名根(不同中转的挂载位置不一样)
+  const candidates: string[] = [];
+  if (/^https?:\/\//i.test(url)) {
+    candidates.push(url);
+  } else {
+    const path = url.startsWith("/") ? url : "/" + url;
+    candidates.push(base + path);
+    try {
+      const origin = new URL(base).origin;
+      if (origin + path !== base + path) candidates.push(origin + path);
+    } catch {}
+  }
+  let lastStatus = 0;
+  for (const imgUrl of candidates) {
+    const imgResp = await fetch(imgUrl);
+    if (imgResp.ok) {
+      const buf = await imgResp.arrayBuffer();
+      results.value.push({
+        base64: bufToBase64(buf),
+        mime: imgResp.headers.get("content-type") ?? "image/png",
+      });
+      return;
+    }
+    lastStatus = imgResp.status;
+  }
+  throw new Error(`下载图片失败 (${lastStatus}): ${candidates.join(" 或 ")}`);
+}
+
+async function parseResponse(resp: Response): Promise<any> {
+  const text = await resp.text();
+  if (!resp.ok) {
+    let msg = text;
+    try {
+      msg = JSON.parse(text)?.error?.message ?? text;
+    } catch {}
+    throw new Error(`请求失败 (${resp.status}): ${msg}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    // 返回了 HTML 等非 JSON 内容,通常是端点地址不对(如缺少 /v1 或路径错误)
+    throw new Error(`响应不是 JSON(收到 ${text.slice(0, 50)}...),请检查 API 端点是否正确`);
   }
 }
 
@@ -207,6 +340,14 @@ async function saveImage(img: ResultImage) {
       <label>
         模型 ID
         <input v-model="model" placeholder="gpt-image-2" />
+      </label>
+      <label>
+        接口模式
+        <select v-model="apiMode">
+          <option value="auto">自动（多参考图走 Chat）</option>
+          <option value="images">Images 接口</option>
+          <option value="chat">Chat 接口</option>
+        </select>
       </label>
 
       <h2>生成参数</h2>
@@ -259,9 +400,7 @@ async function saveImage(img: ResultImage) {
         </div>
 
         <div class="actions">
-          <span class="hint">
-            {{ refImages.length > 0 ? `${refImages.length} 张参考图 · 使用图像编辑接口` : "无参考图 · 使用文生图接口" }}
-          </span>
+          <span class="hint">{{ hintText }}</span>
           <button class="generate" :disabled="loading" @click="generate">
             {{ loading ? "生成中..." : "生成 (Ctrl+Enter)" }}
           </button>
