@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch as httpFetch, type ClientOptions } from "@tauri-apps/plugin-http";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -17,6 +17,26 @@ interface ResultImage {
 }
 
 const SETTINGS_KEY = "gugle-ai-settings";
+
+// 插件底层的 reqwest 不读 Windows 系统代理;每次请求前都取一次,
+// 这样改系统代理后无需重启应用即可生效(注册表读取开销可忽略)
+let lastLoggedProxy: string | null | undefined;
+
+async function fetch(input: string, init?: RequestInit & ClientOptions): Promise<Response> {
+  const opts = { ...init };
+  if (!opts.proxy) {
+    let proxy: string | null = null;
+    try {
+      proxy = await invoke<string | null>("get_system_proxy");
+    } catch {}
+    if (proxy !== lastLoggedProxy) {
+      lastLoggedProxy = proxy;
+      log("INFO", proxy ? `使用系统代理: ${proxy}` : "系统代理已关闭,直连");
+    }
+    if (proxy) opts.proxy = { all: proxy };
+  }
+  return httpFetch(input, opts);
+}
 
 const endpoint = ref("https://api.openai.com/v1");
 const apiKey = ref("");
@@ -139,7 +159,7 @@ const hintText = computed(() => {
   return n > 0 ? `${n} 张参考图 · ${api}` : `无参考图 · ${api}`;
 });
 
-onMounted(() => {
+onMounted(async () => {
   const saved = localStorage.getItem(SETTINGS_KEY);
   if (saved) {
     try {

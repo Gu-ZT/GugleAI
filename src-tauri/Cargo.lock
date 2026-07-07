@@ -1458,7 +1458,7 @@ dependencies = [
 
 [[package]]
 name = "gugle-ai"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -1468,6 +1468,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-http",
  "tauri-plugin-opener",
+ "winreg",
 ]
 
 [[package]]

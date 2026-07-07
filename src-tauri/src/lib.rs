@@ -35,13 +35,75 @@ fn show_log_file(app: tauri::AppHandle) -> Result<String, String> {
     Ok(path.display().to_string())
 }
 
+// reqwest 默认只读代理环境变量,这里补上 Windows 系统代理(注册表)的探测
+#[tauri::command]
+fn get_system_proxy() -> Option<String> {
+    for key in [
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ] {
+        if let Ok(v) = std::env::var(key) {
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Some(p) = windows_registry_proxy() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn windows_registry_proxy() -> Option<String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let key = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
+        .ok()?;
+    let enabled: u32 = key.get_value("ProxyEnable").ok()?;
+    if enabled == 0 {
+        return None;
+    }
+    let server: String = key.get_value("ProxyServer").ok()?;
+    if server.is_empty() {
+        return None;
+    }
+    // 可能是 "host:port",也可能是 "http=host:port;https=host:port" 分协议格式
+    let pick = if server.contains('=') {
+        server.split(';').find_map(|part| {
+            let (k, v) = part.split_once('=')?;
+            (k == "https" || k == "http").then(|| v.to_string())
+        })?
+    } else {
+        server
+    };
+    Some(if pick.contains("://") {
+        pick
+    } else {
+        format!("http://{pick}")
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![save_file, append_log, show_log_file])
+        .invoke_handler(tauri::generate_handler![
+            save_file,
+            append_log,
+            show_log_file,
+            get_system_proxy
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
