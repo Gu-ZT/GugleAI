@@ -45,7 +45,7 @@ async function fetch(input: string, init?: RequestInit & ClientOptions): Promise
     }
     if (proxy !== lastLoggedProxy) {
       lastLoggedProxy = proxy;
-      log("INFO", proxy ? `使用系统代理: ${proxy}` : "系统代理已关闭,直连");
+      log("INFO", proxy ? `使用系统代理: ${sanitizeUrlForLog(proxy)}` : "系统代理已关闭,直连");
     }
     if (proxy) opts.proxy = {all: proxy};
   }
@@ -83,9 +83,110 @@ const dragOver = ref(false);
 const logs = ref<string[]>([]);
 const showLogs = ref(false);
 const logFilePath = ref("");
+let generationSequence = 0;
+
+function redactSensitiveText(value: unknown): string {
+  let text = String(value ?? "");
+  if (apiKey.value) text = text.split(apiKey.value).join("[已隐藏 API Key]");
+  return text
+      .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, "$1 [已隐藏]")
+      .replace(
+          /((?:["']?(?:api[_-]?key|authorization|password|passwd|secret|token|access[_-]?token)["']?)\s*[:=]\s*["']?)[^"',;\s}]+/gi,
+          "$1[已隐藏]"
+      )
+      .replace(/([?&](?:api_?key|key|token|access_token|authorization)=)[^&#\s)]*/gi, "$1[已隐藏]")
+      .replace(/(https?:\/\/[^\s?#)]+)[?#][^\s)]*/gi, "$1?[已隐藏查询参数]")
+      .replace(/([a-z][a-z0-9+.-]*:\/\/)([^/@\s]+)@/gi, "$1[已隐藏]@")
+      .replace(/[A-Za-z0-9+/]{200,}={0,2}/g, "[已隐藏长数据]");
+}
+
+function sanitizeUrlForLog(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return redactSensitiveText(value).replace(/([?#]).*$/, "$1[已隐藏]");
+  }
+}
+
+function errorMessage(errorValue: unknown): string {
+  if (errorValue && typeof errorValue === "object") {
+    const message = (errorValue as Record<string, unknown>).message;
+    if (typeof message === "string") return redactSensitiveText(message);
+  }
+  return redactSensitiveText(errorValue);
+}
+
+function formatErrorDetails(errorValue: unknown, depth = 0): string {
+  if (!errorValue || typeof errorValue !== "object") return errorMessage(errorValue);
+
+  const record = errorValue as Record<string, unknown>;
+  const details: string[] = [];
+  for (const field of [
+    "name",
+    "message",
+    "code",
+    "kind",
+    "errno",
+    "status",
+    "type",
+    "reason",
+    "error",
+    "details",
+  ] as const) {
+    const value = record[field];
+    if (typeof value === "string" || typeof value === "number") {
+      details.push(`${field}=${redactSensitiveText(value)}`);
+    }
+  }
+  if (depth < 2 && record.cause !== undefined) {
+    details.push(`cause=(${formatErrorDetails(record.cause, depth + 1)})`);
+  }
+  if (typeof record.url === "string") details.push(`url=${sanitizeUrlForLog(record.url)}`);
+  if (depth === 0 && typeof record.stack === "string") {
+    const stack = record.stack.split("\n").slice(1, 7).map((line) => line.trim()).join(" <- ");
+    if (stack) details.push(`stack=${redactSensitiveText(stack)}`);
+  }
+  return details.length > 0 ? details.join(" | ") : errorMessage(errorValue);
+}
+
+function formatByteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function describeRequestBody(body: BodyInit | null | undefined): string {
+  if (!body) return "无";
+  if (body instanceof FormData) {
+    let fileCount = 0;
+    let fileBytes = 0;
+    for (const value of body.values()) {
+      if (value instanceof Blob) {
+        fileCount++;
+        fileBytes += value.size;
+      }
+    }
+    return `multipart,文件=${fileCount},文件总大小=${formatByteSize(fileBytes)}`;
+  }
+  if (typeof body === "string") {
+    return `JSON/文本,大小=${formatByteSize(new TextEncoder().encode(body).byteLength)}`;
+  }
+  if (body instanceof Blob) return `Blob,大小=${formatByteSize(body.size)}`;
+  return Object.prototype.toString.call(body).slice(8, -1);
+}
+
+function proxyForLog(): string {
+  if (lastLoggedProxy === undefined) return "未知";
+  return lastLoggedProxy ? sanitizeUrlForLog(lastLoggedProxy) : "直连";
+}
 
 function log(level: "INFO" | "ERROR", msg: string) {
-  const line = `[${new Date().toLocaleString()}] [${level}] ${msg}`;
+  const line = `[${new Date().toLocaleString()}] [${level}] ${redactSensitiveText(msg)}`;
   logs.value.push(line);
   if (logs.value.length > 500) logs.value.splice(0, logs.value.length - 500);
   invoke("append_log", {line}).catch(() => {
@@ -445,6 +546,7 @@ async function generate() {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey.value}`,
   };
+  const generationId = ++generationSequence;
 
   try {
     const retryConfig = getRetryConfig();
@@ -452,20 +554,20 @@ async function generate() {
         apiMode.value === "chat" || (apiMode.value === "auto" && refImages.value.length > 1);
     log(
         "INFO",
-        `开始生成: 端点=${base} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
+        `任务=#${generationId} 开始生成: 端点=${sanitizeUrlForLog(base)} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
     );
     if (useChat) {
-      await generateViaChat(base, headers, retryConfig);
+      await generateViaChat(base, headers, retryConfig, generationId);
     } else {
-      await generateViaImages(base, headers, retryConfig);
+      await generateViaImages(base, headers, retryConfig, generationId);
     }
     if (results.value.length === 0) {
       throw new Error("响应中没有图片数据");
     }
-    log("INFO", `生成成功: ${results.value.length} 张图片`);
-  } catch (e: any) {
-    error.value = e?.message ?? String(e);
-    log("ERROR", error.value);
+    log("INFO", `任务=#${generationId} 生成成功: ${results.value.length} 张图片`);
+  } catch (e: unknown) {
+    error.value = errorMessage(e);
+    log("ERROR", `任务=#${generationId} 生成失败: ${formatErrorDetails(e)}`);
   } finally {
     loading.value = false;
   }
@@ -491,10 +593,37 @@ function getRetryConfig(): RetryConfig | null {
 async function fetchGeneration(
     input: string,
     init: RequestInit & ClientOptions,
-    retryConfig: RetryConfig | null
+    retryConfig: RetryConfig | null,
+    generationId: number
 ): Promise<Response> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const address = sanitizeUrlForLog(input);
+  const bodyDescription = describeRequestBody(init.body);
   for (let retries = 0; ; retries++) {
-    const resp = await fetch(input, init);
+    const startedAt = Date.now();
+    log(
+        "INFO",
+        `任务=#${generationId} 发送生成请求: 方法=${method} 地址=${address} 尝试=${retries + 1} HTTP状态重试=${retries}/${retryConfig?.maxRetries ?? 0} 请求体=${bodyDescription}`
+    );
+    let resp: Response;
+    try {
+      resp = await fetch(input, init);
+    } catch (requestError: unknown) {
+      const elapsedMs = Date.now() - startedAt;
+      const timeoutHint = elapsedMs >= 55_000
+          ? "；耗时接近或超过 60 秒,优先检查上游响应超时、代理连接和网络链路"
+          : "";
+      log(
+          "ERROR",
+          `任务=#${generationId} 生成请求传输失败: 方法=${method} 地址=${address} 尝试=${retries + 1} 用时=${(elapsedMs / 1000).toFixed(1)}s 请求体=${bodyDescription} 代理=${proxyForLog()} WebView网络状态=${navigator.onLine ? "在线" : "离线"} 错误=${formatErrorDetails(requestError)}${timeoutHint}`
+      );
+      throw requestError;
+    }
+    const elapsedMs = Date.now() - startedAt;
+    log(
+        "INFO",
+        `任务=#${generationId} 收到生成响应: 状态=${resp.status} 用时=${(elapsedMs / 1000).toFixed(1)}s 地址=${sanitizeUrlForLog(resp.url || input)}`
+    );
     if (!retryConfig || !retryConfig.statusCodes.has(resp.status) || retries >= retryConfig.maxRetries) {
       return resp;
     }
@@ -502,11 +631,12 @@ async function fetchGeneration(
     // 读取并丢弃本次响应，确保连接能在下一次请求前被释放。
     try {
       await resp.text();
-    } catch {
+    } catch (readError: unknown) {
+      log("ERROR", `任务=#${generationId} 释放重试响应失败: ${formatErrorDetails(readError)}`);
     }
     log(
         "INFO",
-        `生成请求返回 ${resp.status}，1 秒后进行第 ${retries + 1}/${retryConfig.maxRetries} 次重试`
+        `任务=#${generationId} 生成请求返回 ${resp.status}，1 秒后进行第 ${retries + 1}/${retryConfig.maxRetries} 次重试`
     );
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -516,7 +646,8 @@ async function fetchGeneration(
 async function generateViaImages(
     base: string,
     headers: Record<string, string>,
-    retryConfig: RetryConfig | null
+    retryConfig: RetryConfig | null,
+    generationId: number
 ) {
   let resp: Response;
   if (refImages.value.length > 0) {
@@ -528,7 +659,12 @@ async function generateViaImages(
     for (const img of refImages.value) {
       form.append("image[]", img.file, img.file.name);
     }
-    resp = await fetchGeneration(`${base}/images/edits`, {method: "POST", headers, body: form}, retryConfig);
+    resp = await fetchGeneration(
+        `${base}/images/edits`,
+        {method: "POST", headers, body: form},
+        retryConfig,
+        generationId
+    );
   } else {
     resp = await fetchGeneration(
         `${base}/images/generations`,
@@ -542,7 +678,8 @@ async function generateViaImages(
             ...(size.value !== "auto" ? {size: size.value} : {}),
           }),
         },
-        retryConfig
+        retryConfig,
+        generationId
     );
   }
 
@@ -561,7 +698,8 @@ async function generateViaImages(
 async function generateViaChat(
     base: string,
     headers: Record<string, string>,
-    retryConfig: RetryConfig | null
+    retryConfig: RetryConfig | null,
+    generationId: number
 ) {
   const content: any[] = [{type: "text", text: prompt.value}];
   for (const img of refImages.value) {
@@ -582,7 +720,8 @@ async function generateViaChat(
           messages: [{role: "user", content}],
         }),
       },
-      retryConfig
+      retryConfig,
+      generationId
   );
 
   const data = await parseResponse(resp);
@@ -631,7 +770,7 @@ async function downloadResult(base: string, url: string) {
   }
   let lastStatus = 0;
   for (const imgUrl of candidates) {
-    log("INFO", `下载图片: ${imgUrl}`);
+    log("INFO", `下载图片: ${sanitizeUrlForLog(imgUrl)}`);
     const imgResp = await fetch(imgUrl);
     if (imgResp.ok) {
       const buf = await imgResp.arrayBuffer();
@@ -642,22 +781,24 @@ async function downloadResult(base: string, url: string) {
       return;
     }
     lastStatus = imgResp.status;
-    log("ERROR", `下载失败 (${imgResp.status}): ${imgUrl}`);
+    log("ERROR", `下载失败 (${imgResp.status}): ${sanitizeUrlForLog(imgUrl)}`);
   }
-  throw new Error(`下载图片失败 (${lastStatus}): ${candidates.join(" 或 ")}`);
+  throw new Error(`下载图片失败 (${lastStatus}): ${candidates.map(sanitizeUrlForLog).join(" 或 ")}`);
 }
 
 async function parseResponse(resp: Response): Promise<any> {
   const text = await resp.text();
-  log("INFO", `响应: ${resp.status} ${resp.url} 长度=${text.length}`);
+  log("INFO", `响应: ${resp.status} ${sanitizeUrlForLog(resp.url)} 长度=${text.length}`);
   if (!resp.ok) {
     let msg = text;
     try {
       msg = JSON.parse(text)?.error?.message ?? text;
     } catch {
     }
-    log("ERROR", `响应体: ${text.slice(0, 500)}`);
-    throw new Error(`请求失败 (${resp.status}): ${msg}`);
+    const safeBody = redactSensitiveText(text.slice(0, 500));
+    const safeMessage = redactSensitiveText(msg);
+    log("ERROR", `响应体: ${safeBody}`);
+    throw new Error(`请求失败 (${resp.status}): ${safeMessage}`);
   }
   try {
     return JSON.parse(text);

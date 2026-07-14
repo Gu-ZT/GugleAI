@@ -12,6 +12,7 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 - **Reference images**: attach any number of reference images via file picker, drag & drop, or clipboard paste
 - **API mode**: Auto / Images API / Chat API; in Auto mode, multiple reference images are routed through `/chat/completions`, working around relays whose edits endpoint only accepts a single image
 - **Request retries**: optionally retry generation requests for multiple HTTP status codes selected from a dropdown, with persistent custom options and configurable retry counts
+- **Diagnostic logs**: record generation task IDs, request stages, durations, body sizes, proxy state and redacted error details to help diagnose timeouts and transport failures
 - **Generation options**: image size (1024×1024 / landscape / portrait / auto) and count
 - **Save results**: handles `b64_json`, image URLs (including relative paths) and base64 embedded in chat responses; one-click save to disk
 
