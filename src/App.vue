@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { fetch as httpFetch, type ClientOptions } from "@tauri-apps/plugin-http";
-import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { getVersion } from "@tauri-apps/api/app";
+import {computed, onMounted, onUnmounted, ref, watch} from "vue";
+import {fetch as httpFetch, type ClientOptions} from "@tauri-apps/plugin-http";
+import {save} from "@tauri-apps/plugin-dialog";
+import {invoke} from "@tauri-apps/api/core";
+import {openUrl} from "@tauri-apps/plugin-opener";
+import {getVersion} from "@tauri-apps/api/app";
 
 interface RefImage {
   file: File;
@@ -22,23 +22,32 @@ interface RetryConfig {
 }
 
 const SETTINGS_KEY = "gugle-ai-settings";
+const DEFAULT_MODEL_OPTIONS = [
+  "gpt-image-2",
+  "grok-imagine",
+  "grok-imagine-edit",
+  "grok-imagine-image",
+  "grok-imagine-image-quality"
+];
+const DEFAULT_RETRY_STATUS_CODE_OPTIONS = [408, 409, 429, 500, 502, 503, 504, 524];
 
 // 插件底层的 reqwest 不读 Windows 系统代理;每次请求前都取一次,
 // 这样改系统代理后无需重启应用即可生效(注册表读取开销可忽略)
 let lastLoggedProxy: string | null | undefined;
 
 async function fetch(input: string, init?: RequestInit & ClientOptions): Promise<Response> {
-  const opts = { ...init };
+  const opts = {...init};
   if (!opts.proxy) {
     let proxy: string | null = null;
     try {
       proxy = await invoke<string | null>("get_system_proxy");
-    } catch {}
+    } catch {
+    }
     if (proxy !== lastLoggedProxy) {
       lastLoggedProxy = proxy;
       log("INFO", proxy ? `使用系统代理: ${proxy}` : "系统代理已关闭,直连");
     }
-    if (proxy) opts.proxy = { all: proxy };
+    if (proxy) opts.proxy = {all: proxy};
   }
   return httpFetch(input, opts);
 }
@@ -46,10 +55,18 @@ async function fetch(input: string, init?: RequestInit & ClientOptions): Promise
 const endpoint = ref("https://api.openai.com/v1");
 const apiKey = ref("");
 const model = ref("gpt-image-2");
+const modelOptions = ref([...DEFAULT_MODEL_OPTIONS]);
+const modelMenuOpen = ref(false);
+const modelShowAll = ref(true);
+const modelPicker = ref<HTMLElement>();
 // auto: 多参考图自动改走 chat 接口(部分中转的 edits 接口只支持单图)
 const apiMode = ref<"auto" | "images" | "chat">("auto");
 const retryEnabled = ref(false);
-const retryStatusCodes = ref("[504]");
+const retryStatusCodes = ref<number[]>([504]);
+const retryStatusCodeOptions = ref([...DEFAULT_RETRY_STATUS_CODE_OPTIONS]);
+const retryStatusCodeInput = ref("");
+const retryStatusCodeMenuOpen = ref(false);
+const retryStatusCodePicker = ref<HTMLElement>();
 const retryCount = ref(5);
 const autoCheckUpdate = ref(true);
 const size = ref("auto");
@@ -71,7 +88,8 @@ function log(level: "INFO" | "ERROR", msg: string) {
   const line = `[${new Date().toLocaleString()}] [${level}] ${msg}`;
   logs.value.push(line);
   if (logs.value.length > 500) logs.value.splice(0, logs.value.length - 500);
-  invoke("append_log", { line }).catch(() => {});
+  invoke("append_log", {line}).catch(() => {
+  });
 }
 
 async function openLogFile() {
@@ -87,7 +105,7 @@ const RELEASES_PAGE = "https://github.com/Gu-ZT/GugleAI/releases";
 const UPDATE_API = "https://api.github.com/repos/Gu-ZT/GugleAI/releases?per_page=1";
 // gh-proxy 不代理 api.github.com,回退用它拉 main 分支的 tauri.conf.json 读版本号
 const UPDATE_FALLBACK =
-  "https://gh-proxy.com/https://raw.githubusercontent.com/Gu-ZT/GugleAI/main/src-tauri/tauri.conf.json";
+    "https://gh-proxy.com/https://raw.githubusercontent.com/Gu-ZT/GugleAI/main/src-tauri/tauri.conf.json";
 
 const updateStatus = ref("");
 const updateUrl = ref("");
@@ -109,12 +127,12 @@ function isNewer(remote: string, current: string): boolean {
 async function fetchLatestVersion(): Promise<{ version: string; url: string }> {
   try {
     const resp = await fetch(UPDATE_API, {
-      headers: { Accept: "application/vnd.github+json" },
+      headers: {Accept: "application/vnd.github+json"},
     });
     if (resp.ok) {
       const releases = await resp.json();
       if (Array.isArray(releases) && releases[0]?.tag_name) {
-        return { version: releases[0].tag_name, url: releases[0].html_url ?? RELEASES_PAGE };
+        return {version: releases[0].tag_name, url: releases[0].html_url ?? RELEASES_PAGE};
       }
     }
     throw new Error(`GitHub API ${resp.status}`);
@@ -124,7 +142,7 @@ async function fetchLatestVersion(): Promise<{ version: string; url: string }> {
     if (!resp.ok) throw new Error(`代理请求失败 (${resp.status})`);
     const conf = await resp.json();
     if (!conf.version) throw new Error("代理响应中没有版本号");
-    return { version: conf.version, url: RELEASES_PAGE };
+    return {version: conf.version, url: RELEASES_PAGE};
   }
 }
 
@@ -167,6 +185,116 @@ const hintText = computed(() => {
   return n > 0 ? `${n} 张参考图 · ${api}` : `无参考图 · ${api}`;
 });
 
+const filteredModelOptions = computed(() => {
+  const query = model.value.trim().toLowerCase();
+  if (modelShowAll.value || !query) return modelOptions.value;
+  return modelOptions.value.filter((option) => option.toLowerCase().includes(query));
+});
+
+const canAddModelOption = computed(() => {
+  const value = model.value.trim();
+  return value.length > 0 && !modelOptions.value.includes(value);
+});
+
+const retryStatusCodeInputValue = computed(() => {
+  const value = retryStatusCodeInput.value.trim();
+  if (!/^\d{3}$/.test(value)) return null;
+  const code = Number(value);
+  return code >= 100 && code <= 599 ? code : null;
+});
+
+const filteredRetryStatusCodeOptions = computed(() => {
+  const query = retryStatusCodeInput.value.trim();
+  if (!query) return retryStatusCodeOptions.value;
+  return retryStatusCodeOptions.value.filter((code) => String(code).includes(query));
+});
+
+const showRetryStatusCodeInputAction = computed(() => {
+  const code = retryStatusCodeInputValue.value;
+  return code !== null && !retryStatusCodes.value.includes(code);
+});
+
+function normalizeModelOptions(value: unknown): string[] {
+  const saved = Array.isArray(value)
+      ? value.filter((option): option is string => typeof option === "string" && option.trim().length > 0)
+      : [];
+  return [...new Set([...DEFAULT_MODEL_OPTIONS, ...saved.map((option) => option.trim())])];
+}
+
+function normalizeStatusCodes(value: unknown): number[] | null {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(parsed)) return null;
+  const codes = parsed.filter(
+      (code): code is number => Number.isInteger(code) && code >= 100 && code <= 599
+  );
+  if (codes.length !== parsed.length) return null;
+  return [...new Set(codes)].sort((a, b) => a - b);
+}
+
+function selectModelOption(option: string) {
+  model.value = option;
+  modelMenuOpen.value = false;
+  modelShowAll.value = true;
+}
+
+function addModelOption() {
+  const value = model.value.trim();
+  if (!value) return;
+  model.value = value;
+  if (!modelOptions.value.includes(value)) {
+    modelOptions.value = [...modelOptions.value, value];
+  }
+  modelMenuOpen.value = false;
+  modelShowAll.value = true;
+}
+
+function removeModelOption(option: string) {
+  if (DEFAULT_MODEL_OPTIONS.includes(option)) return;
+  modelOptions.value = modelOptions.value.filter((item) => item !== option);
+}
+
+function toggleRetryStatusCode(code: number) {
+  retryStatusCodes.value = retryStatusCodes.value.includes(code)
+      ? retryStatusCodes.value.filter((item) => item !== code)
+      : [...retryStatusCodes.value, code].sort((a, b) => a - b);
+}
+
+function addRetryStatusCode() {
+  const code = retryStatusCodeInputValue.value;
+  if (code === null) return;
+  if (!retryStatusCodeOptions.value.includes(code)) {
+    retryStatusCodeOptions.value = [...retryStatusCodeOptions.value, code].sort((a, b) => a - b);
+  }
+  if (!retryStatusCodes.value.includes(code)) {
+    retryStatusCodes.value = [...retryStatusCodes.value, code].sort((a, b) => a - b);
+  }
+  retryStatusCodeInput.value = "";
+}
+
+function removeRetryStatusCodeOption(code: number) {
+  if (DEFAULT_RETRY_STATUS_CODE_OPTIONS.includes(code)) return;
+  retryStatusCodeOptions.value = retryStatusCodeOptions.value.filter((item) => item !== code);
+  retryStatusCodes.value = retryStatusCodes.value.filter((item) => item !== code);
+}
+
+function closePickerMenus(e: PointerEvent) {
+  const target = e.target as Node;
+  if (!modelPicker.value?.contains(target)) {
+    modelMenuOpen.value = false;
+    modelShowAll.value = true;
+  }
+  if (!retryStatusCodePicker.value?.contains(target)) {
+    retryStatusCodeMenuOpen.value = false;
+  }
+}
+
 onMounted(async () => {
   const saved = localStorage.getItem(SETTINGS_KEY);
   if (saved) {
@@ -175,40 +303,71 @@ onMounted(async () => {
       endpoint.value = s.endpoint ?? endpoint.value;
       apiKey.value = s.apiKey ?? "";
       model.value = s.model ?? model.value;
+      modelOptions.value = normalizeModelOptions(s.modelOptions);
+      const savedModel = model.value.trim();
+      if (savedModel && !modelOptions.value.includes(savedModel)) {
+        modelOptions.value = [...modelOptions.value, savedModel];
+      }
       apiMode.value = s.apiMode ?? "auto";
       retryEnabled.value = s.retryEnabled ?? false;
-      retryStatusCodes.value = s.retryStatusCodes ?? "[504]";
+      retryStatusCodes.value = normalizeStatusCodes(s.retryStatusCodes) ?? [504];
+      retryStatusCodeOptions.value = [
+        ...new Set([
+          ...DEFAULT_RETRY_STATUS_CODE_OPTIONS,
+          ...(normalizeStatusCodes(s.retryStatusCodeOptions) ?? []),
+          ...retryStatusCodes.value,
+        ]),
+      ].sort((a, b) => a - b);
       retryCount.value = s.retryCount ?? 5;
       autoCheckUpdate.value = s.autoCheckUpdate ?? true;
-    } catch {}
+    } catch {
+    }
   }
   window.addEventListener("paste", onPaste);
+  document.addEventListener("pointerdown", closePickerMenus);
   if (autoCheckUpdate.value) checkUpdate(false);
 });
 
 onUnmounted(() => {
   window.removeEventListener("paste", onPaste);
+  document.removeEventListener("pointerdown", closePickerMenus);
 });
 
-watch([endpoint, apiKey, model, apiMode, retryEnabled, retryStatusCodes, retryCount, autoCheckUpdate], () => {
-  localStorage.setItem(
-    SETTINGS_KEY,
-    JSON.stringify({
-      endpoint: endpoint.value,
-      apiKey: apiKey.value,
-      model: model.value,
-      apiMode: apiMode.value,
-      retryEnabled: retryEnabled.value,
-      retryStatusCodes: retryStatusCodes.value,
-      retryCount: retryCount.value,
-      autoCheckUpdate: autoCheckUpdate.value,
-    })
-  );
-});
+watch(
+    [
+      endpoint,
+      apiKey,
+      model,
+      modelOptions,
+      apiMode,
+      retryEnabled,
+      retryStatusCodes,
+      retryStatusCodeOptions,
+      retryCount,
+      autoCheckUpdate,
+    ],
+    () => {
+      localStorage.setItem(
+          SETTINGS_KEY,
+          JSON.stringify({
+            endpoint: endpoint.value,
+            apiKey: apiKey.value,
+            model: model.value,
+            modelOptions: modelOptions.value,
+            apiMode: apiMode.value,
+            retryEnabled: retryEnabled.value,
+            retryStatusCodes: retryStatusCodes.value,
+            retryStatusCodeOptions: retryStatusCodeOptions.value,
+            retryCount: retryCount.value,
+            autoCheckUpdate: autoCheckUpdate.value,
+          })
+      );
+    }
+);
 
 function addFile(file: File) {
   if (!file.type.startsWith("image/")) return;
-  refImages.value.push({ file, previewUrl: URL.createObjectURL(file) });
+  refImages.value.push({file, previewUrl: URL.createObjectURL(file)});
 }
 
 function addImages(e: Event) {
@@ -238,7 +397,8 @@ function tryApplyConnConfig(text: string): boolean {
         apiKey.value = conn.key;
         return true;
       }
-    } catch {}
+    } catch {
+    }
   }
   if (/^\[model_providers\.[^\]]+\]/m.test(text)) {
     const m = text.match(/^\[model_providers\.[^\]]+\][^[]*?^\s*base_url\s*=\s*"([^"]+)"/ms);
@@ -289,10 +449,10 @@ async function generate() {
   try {
     const retryConfig = getRetryConfig();
     const useChat =
-      apiMode.value === "chat" || (apiMode.value === "auto" && refImages.value.length > 1);
+        apiMode.value === "chat" || (apiMode.value === "auto" && refImages.value.length > 1);
     log(
-      "INFO",
-      `开始生成: 端点=${base} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
+        "INFO",
+        `开始生成: 端点=${base} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
     );
     if (useChat) {
       await generateViaChat(base, headers, retryConfig);
@@ -314,31 +474,24 @@ async function generate() {
 function getRetryConfig(): RetryConfig | null {
   if (!retryEnabled.value) return null;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(retryStatusCodes.value);
-  } catch {
-    throw new Error("重试错误码必须是 JSON 数组，例如 [504, 502]");
-  }
   if (
-    !Array.isArray(parsed) ||
-    parsed.length === 0 ||
-    parsed.some((code) => !Number.isInteger(code) || code < 100 || code > 599)
+      retryStatusCodes.value.length === 0 ||
+      retryStatusCodes.value.some((code) => !Number.isInteger(code) || code < 100 || code > 599)
   ) {
-    throw new Error("重试错误码必须是由 100 到 599 整数组成的非空数组，例如 [504, 502]");
+    throw new Error("请至少选择一个 100 到 599 之间的重试错误码");
   }
 
   const maxRetries = Number(retryCount.value);
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > 20) {
     throw new Error("重试次数必须是 1 到 20 之间的整数");
   }
-  return { statusCodes: new Set(parsed as number[]), maxRetries };
+  return {statusCodes: new Set(retryStatusCodes.value), maxRetries};
 }
 
 async function fetchGeneration(
-  input: string,
-  init: RequestInit & ClientOptions,
-  retryConfig: RetryConfig | null
+    input: string,
+    init: RequestInit & ClientOptions,
+    retryConfig: RetryConfig | null
 ): Promise<Response> {
   for (let retries = 0; ; retries++) {
     const resp = await fetch(input, init);
@@ -349,10 +502,11 @@ async function fetchGeneration(
     // 读取并丢弃本次响应，确保连接能在下一次请求前被释放。
     try {
       await resp.text();
-    } catch {}
+    } catch {
+    }
     log(
-      "INFO",
-      `生成请求返回 ${resp.status}，1 秒后进行第 ${retries + 1}/${retryConfig.maxRetries} 次重试`
+        "INFO",
+        `生成请求返回 ${resp.status}，1 秒后进行第 ${retries + 1}/${retryConfig.maxRetries} 次重试`
     );
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -360,9 +514,9 @@ async function fetchGeneration(
 
 // 标准 OpenAI 图像接口: 无参考图走 generations,有参考图走 edits
 async function generateViaImages(
-  base: string,
-  headers: Record<string, string>,
-  retryConfig: RetryConfig | null
+    base: string,
+    headers: Record<string, string>,
+    retryConfig: RetryConfig | null
 ) {
   let resp: Response;
   if (refImages.value.length > 0) {
@@ -374,28 +528,28 @@ async function generateViaImages(
     for (const img of refImages.value) {
       form.append("image[]", img.file, img.file.name);
     }
-    resp = await fetchGeneration(`${base}/images/edits`, { method: "POST", headers, body: form }, retryConfig);
+    resp = await fetchGeneration(`${base}/images/edits`, {method: "POST", headers, body: form}, retryConfig);
   } else {
     resp = await fetchGeneration(
-      `${base}/images/generations`,
-      {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: model.value,
-          prompt: prompt.value,
-          n: count.value,
-          ...(size.value !== "auto" ? { size: size.value } : {}),
-        }),
-      },
-      retryConfig
+        `${base}/images/generations`,
+        {
+          method: "POST",
+          headers: {...headers, "Content-Type": "application/json"},
+          body: JSON.stringify({
+            model: model.value,
+            prompt: prompt.value,
+            n: count.value,
+            ...(size.value !== "auto" ? {size: size.value} : {}),
+          }),
+        },
+        retryConfig
     );
   }
 
   const data = await parseResponse(resp);
   for (const item of data.data ?? []) {
     if (item.b64_json) {
-      results.value.push({ base64: item.b64_json, mime: "image/png" });
+      results.value.push({base64: item.b64_json, mime: "image/png"});
     } else if (item.url) {
       await downloadResult(base, item.url);
     }
@@ -405,30 +559,30 @@ async function generateViaImages(
 // chat/completions 兼容链路: 参考图作为 image_url 放入消息,
 // 生成的图从返回内容里的 data URL 或 http URL 中提取
 async function generateViaChat(
-  base: string,
-  headers: Record<string, string>,
-  retryConfig: RetryConfig | null
+    base: string,
+    headers: Record<string, string>,
+    retryConfig: RetryConfig | null
 ) {
-  const content: any[] = [{ type: "text", text: prompt.value }];
+  const content: any[] = [{type: "text", text: prompt.value}];
   for (const img of refImages.value) {
     const buf = await img.file.arrayBuffer();
     content.push({
       type: "image_url",
-      image_url: { url: `data:${img.file.type || "image/png"};base64,${bufToBase64(buf)}` },
+      image_url: {url: `data:${img.file.type || "image/png"};base64,${bufToBase64(buf)}`},
     });
   }
 
   const resp = await fetchGeneration(
-    `${base}/chat/completions`,
-    {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: model.value,
-        messages: [{ role: "user", content }],
-      }),
-    },
-    retryConfig
+      `${base}/chat/completions`,
+      {
+        method: "POST",
+        headers: {...headers, "Content-Type": "application/json"},
+        body: JSON.stringify({
+          model: model.value,
+          messages: [{role: "user", content}],
+        }),
+      },
+      retryConfig
   );
 
   const data = await parseResponse(resp);
@@ -441,7 +595,7 @@ async function generateViaChat(
     }
     const text: string = typeof msg.content === "string" ? msg.content : "";
     for (const m of text.matchAll(/data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)/g)) {
-      results.value.push({ base64: m[2], mime: m[1] });
+      results.value.push({base64: m[2], mime: m[1]});
     }
     // 内容里没有内嵌 base64 时,再找 markdown 图片链接
     if (results.value.length === 0) {
@@ -455,7 +609,7 @@ async function generateViaChat(
 async function collectChatImage(base: string, url: string) {
   const dataUrl = url.match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/);
   if (dataUrl) {
-    results.value.push({ base64: dataUrl[2], mime: dataUrl[1] });
+    results.value.push({base64: dataUrl[2], mime: dataUrl[1]});
   } else {
     await downloadResult(base, url);
   }
@@ -472,7 +626,8 @@ async function downloadResult(base: string, url: string) {
     try {
       const origin = new URL(base).origin;
       if (origin + path !== base + path) candidates.push(origin + path);
-    } catch {}
+    } catch {
+    }
   }
   let lastStatus = 0;
   for (const imgUrl of candidates) {
@@ -499,7 +654,8 @@ async function parseResponse(resp: Response): Promise<any> {
     let msg = text;
     try {
       msg = JSON.parse(text)?.error?.message ?? text;
-    } catch {}
+    } catch {
+    }
     log("ERROR", `响应体: ${text.slice(0, 500)}`);
     throw new Error(`请求失败 (${resp.status}): ${msg}`);
   }
@@ -525,11 +681,11 @@ async function saveImage(img: ResultImage) {
   const ext = img.mime.includes("jpeg") ? "jpg" : img.mime.includes("webp") ? "webp" : "png";
   const path = await save({
     defaultPath: `generated-${Date.now()}.${ext}`,
-    filters: [{ name: "图片", extensions: [ext] }],
+    filters: [{name: "图片", extensions: [ext]}],
   });
   if (!path) return;
   try {
-    await invoke("save_file", { path, base64Data: img.base64 });
+    await invoke("save_file", {path, base64Data: img.base64});
   } catch (e: any) {
     error.value = `保存失败: ${e?.message ?? e}`;
   }
@@ -542,16 +698,76 @@ async function saveImage(img: ResultImage) {
       <h2>连接设置</h2>
       <label>
         API 端点
-        <input v-model="endpoint" placeholder="https://api.openai.com/v1" />
+        <input v-model="endpoint" placeholder="https://api.openai.com/v1"/>
       </label>
       <label>
         API Key
-        <input v-model="apiKey" type="password" placeholder="sk-..." />
+        <input v-model="apiKey" type="password" placeholder="sk-..."/>
       </label>
-      <label>
-        模型 ID
-        <input v-model="model" placeholder="gpt-image-2" />
-      </label>
+      <div class="field">
+        <label for="model-input">模型 ID</label>
+        <div ref="modelPicker" class="combo-picker">
+          <div class="combo-control" :class="{ open: modelMenuOpen }">
+            <input
+                id="model-input"
+                v-model="model"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="model-option-list"
+                :aria-expanded="modelMenuOpen"
+                autocomplete="off"
+                placeholder="gpt-image-2"
+                @focus="modelMenuOpen = true; modelShowAll = true"
+                @input="modelMenuOpen = true; modelShowAll = false"
+                @keydown.enter.prevent="addModelOption"
+                @keydown.esc="modelMenuOpen = false"
+            />
+            <button
+                type="button"
+                class="combo-toggle"
+                aria-label="展开模型选项"
+                :aria-expanded="modelMenuOpen"
+                @click="modelMenuOpen = !modelMenuOpen; modelShowAll = true"
+            >
+              <span class="chevron" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div v-if="modelMenuOpen" id="model-option-list" class="combo-menu" role="listbox">
+            <div
+                v-for="option in filteredModelOptions"
+                :key="option"
+                class="combo-option-row"
+                :class="{ selected: model === option }"
+            >
+              <button
+                  type="button"
+                  class="combo-option-main"
+                  role="option"
+                  :aria-selected="model === option"
+                  :title="option"
+                  @click="selectModelOption(option)"
+              >
+                <span class="combo-option-text">{{ option }}</span>
+                <span v-if="model === option" class="combo-check" aria-hidden="true">✓</span>
+              </button>
+              <button
+                  v-if="!DEFAULT_MODEL_OPTIONS.includes(option)"
+                  type="button"
+                  class="combo-remove-option"
+                  :aria-label="`删除模型选项 ${option}`"
+                  title="删除自定义选项"
+                  @click="removeModelOption(option)"
+              >
+                ×
+              </button>
+            </div>
+            <button v-if="canAddModelOption" type="button" class="combo-add" @click="addModelOption">
+              <span aria-hidden="true">＋</span>
+              <span class="combo-option-text">添加“{{ model.trim() }}”</span>
+            </button>
+          </div>
+        </div>
+      </div>
       <label>
         接口模式
         <select v-model="apiMode">
@@ -563,16 +779,109 @@ async function saveImage(img: ResultImage) {
 
       <h2>请求重试</h2>
       <label class="checkbox-row">
-        <input v-model="retryEnabled" type="checkbox" />
+        <input v-model="retryEnabled" type="checkbox"/>
         <span>自动重试</span>
       </label>
-      <label>
-        重试错误码
-        <input v-model="retryStatusCodes" :disabled="!retryEnabled" placeholder="[504]" />
-      </label>
+      <div class="field">
+        <label for="retry-status-code-input">重试错误码</label>
+        <div ref="retryStatusCodePicker" class="combo-picker">
+          <div
+              class="combo-control combo-control-multi"
+              :class="{ open: retryStatusCodeMenuOpen, disabled: !retryEnabled }"
+          >
+            <div class="combo-values">
+              <button
+                  v-for="code in retryStatusCodes"
+                  :key="code"
+                  type="button"
+                  class="status-code-chip"
+                  :disabled="!retryEnabled"
+                  :aria-label="`取消选择错误码 ${code}`"
+                  :title="`取消选择 ${code}`"
+                  @click="toggleRetryStatusCode(code)"
+              >
+                {{ code }}<span aria-hidden="true">×</span>
+              </button>
+              <input
+                  id="retry-status-code-input"
+                  v-model="retryStatusCodeInput"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-controls="retry-status-code-option-list"
+                  :aria-expanded="retryStatusCodeMenuOpen"
+                  :disabled="!retryEnabled"
+                  inputmode="numeric"
+                  maxlength="3"
+                  autocomplete="off"
+                  placeholder="输入错误码"
+                  @focus="retryStatusCodeMenuOpen = true"
+                  @input="retryStatusCodeMenuOpen = true"
+                  @keydown.enter.prevent="addRetryStatusCode"
+                  @keydown.esc="retryStatusCodeMenuOpen = false"
+              />
+            </div>
+            <button
+                type="button"
+                class="combo-toggle"
+                aria-label="展开错误码选项"
+                :aria-expanded="retryStatusCodeMenuOpen"
+                :disabled="!retryEnabled"
+                @click="retryStatusCodeMenuOpen = !retryStatusCodeMenuOpen"
+            >
+              <span class="chevron" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div
+              v-if="retryStatusCodeMenuOpen && retryEnabled"
+              id="retry-status-code-option-list"
+              class="combo-menu"
+          >
+            <div
+                v-for="code in filteredRetryStatusCodeOptions"
+                :key="code"
+                class="combo-option-row"
+                :class="{ selected: retryStatusCodes.includes(code) }"
+            >
+              <label class="combo-checkbox-option">
+                <input
+                    type="checkbox"
+                    :checked="retryStatusCodes.includes(code)"
+                    @change="toggleRetryStatusCode(code)"
+                />
+                <span>{{ code }}</span>
+              </label>
+              <button
+                  v-if="!DEFAULT_RETRY_STATUS_CODE_OPTIONS.includes(code)"
+                  type="button"
+                  class="combo-remove-option"
+                  :aria-label="`删除错误码选项 ${code}`"
+                  title="删除自定义选项"
+                  @click="removeRetryStatusCodeOption(code)"
+              >
+                ×
+              </button>
+            </div>
+            <button
+                v-if="showRetryStatusCodeInputAction"
+                type="button"
+                class="combo-add"
+                @click="addRetryStatusCode"
+            >
+              <span aria-hidden="true">＋</span>
+              <span>添加并选择 {{ retryStatusCodeInputValue }}</span>
+            </button>
+            <p
+                v-if="filteredRetryStatusCodeOptions.length === 0 && !showRetryStatusCodeInputAction"
+                class="combo-empty"
+            >
+              无匹配项
+            </p>
+          </div>
+        </div>
+      </div>
       <label>
         重试次数
-        <input v-model.number="retryCount" :disabled="!retryEnabled" type="number" min="1" max="20" />
+        <input v-model.number="retryCount" :disabled="!retryEnabled" type="number" min="1" max="20"/>
       </label>
 
       <h2>生成参数</h2>
@@ -587,12 +896,12 @@ async function saveImage(img: ResultImage) {
       </label>
       <label>
         数量
-        <input v-model.number="count" type="number" min="1" max="10" />
+        <input v-model.number="count" type="number" min="1" max="10"/>
       </label>
 
       <h2>更新</h2>
       <label class="checkbox-row">
-        <input v-model="autoCheckUpdate" type="checkbox" />
+        <input v-model="autoCheckUpdate" type="checkbox"/>
         <span>启动时自动检查更新</span>
       </label>
       <button class="log-btn" :disabled="checkingUpdate" @click="checkUpdate(true)">
@@ -611,33 +920,34 @@ async function saveImage(img: ResultImage) {
     <section class="content">
       <div class="prompt-area">
         <textarea
-          v-model="prompt"
-          rows="4"
-          placeholder="描述你想生成的图片..."
-          @keydown.ctrl.enter="generate"
+            v-model="prompt"
+            rows="4"
+            placeholder="描述你想生成的图片..."
+            @keydown.ctrl.enter="generate"
         ></textarea>
 
         <div class="ref-images">
           <div v-for="(img, i) in refImages" :key="img.previewUrl" class="ref-thumb">
-            <img :src="img.previewUrl" :alt="img.file.name" :title="img.file.name" />
+            <img :src="img.previewUrl" :alt="img.file.name" :title="img.file.name"/>
             <button class="remove" @click="removeImage(i)">×</button>
           </div>
           <button
-            class="add-ref"
-            :class="{ 'drag-over': dragOver }"
-            title="添加参考图（可拖拽文件或 Ctrl+V 粘贴）"
-            @click="fileInput?.click()"
-            @dragover.prevent="dragOver = true"
-            @dragleave="dragOver = false"
-            @drop.prevent="onDrop"
-          >＋</button>
+              class="add-ref"
+              :class="{ 'drag-over': dragOver }"
+              title="添加参考图（可拖拽文件或 Ctrl+V 粘贴）"
+              @click="fileInput?.click()"
+              @dragover.prevent="dragOver = true"
+              @dragleave="dragOver = false"
+              @drop.prevent="onDrop"
+          >＋
+          </button>
           <input
-            ref="fileInput"
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            multiple
-            hidden
-            @change="addImages"
+              ref="fileInput"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              multiple
+              hidden
+              @change="addImages"
           />
         </div>
 
@@ -662,7 +972,7 @@ async function saveImage(img: ResultImage) {
 
       <div v-if="results.length" class="results">
         <div v-for="(img, i) in results" :key="i" class="result-card">
-          <img :src="`data:${img.mime};base64,${img.base64}`" alt="生成结果" />
+          <img :src="`data:${img.mime};base64,${img.base64}`" alt="生成结果"/>
           <button @click="saveImage(img)">保存</button>
         </div>
       </div>
@@ -723,6 +1033,18 @@ label {
   color: #a1a1aa;
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field > label {
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
 input,
 select,
 textarea {
@@ -741,8 +1063,246 @@ textarea:focus {
   border-color: #6366f1;
 }
 
+.combo-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.combo-control {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 36px;
+  color: #e4e4e7;
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+}
+
+.combo-control:focus-within,
+.combo-control.open {
+  border-color: #6366f1;
+}
+
+.combo-control.disabled {
+  opacity: 0.5;
+}
+
+.combo-control > input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 6px 0 0 6px;
+  background: transparent;
+}
+
+.combo-control > input:focus,
+.combo-values > input:focus {
+  border-color: transparent;
+}
+
+.combo-toggle {
+  width: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  color: #a1a1aa;
+  cursor: pointer;
+}
+
+.combo-toggle:hover:not(:disabled) {
+  color: #e4e4e7;
+  background: #323237;
+}
+
+.combo-toggle:disabled {
+  cursor: default;
+}
+
+.chevron {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.combo-control.open .chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.combo-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #27272a;
+  box-shadow: 0 8px 24px #0008;
+}
+
+.combo-option-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 4px;
+}
+
+.combo-option-row:hover,
+.combo-option-row.selected {
+  background: #37373d;
+}
+
+.combo-option-main,
+.combo-add {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #e4e4e7;
+  font: inherit;
+  cursor: pointer;
+}
+
+.combo-option-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.combo-option-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-check {
+  flex-shrink: 0;
+  color: #818cf8;
+}
+
+.combo-remove-option {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #71717a;
+  font: inherit;
+  cursor: pointer;
+}
+
+.combo-remove-option:hover {
+  background: #7f1d1d66;
+  color: #fca5a5;
+}
+
+.combo-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 8px;
+  border-top: 1px solid #3f3f46;
+  color: #a5b4fc;
+  text-align: left;
+}
+
+.combo-add:hover {
+  background: #37373d;
+}
+
+.combo-control-multi {
+  align-items: stretch;
+}
+
+.combo-values {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 2px 4px 6px;
+}
+
+.combo-values > input {
+  flex: 1 0 78px;
+  width: 78px;
+  min-width: 0;
+  height: 26px;
+  padding: 3px 4px;
+  border: 0;
+  background: transparent;
+}
+
+.status-code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 5px 0 7px;
+  border: 1px solid #52525b;
+  border-radius: 4px;
+  background: #3f3f46;
+  color: #e4e4e7;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.status-code-chip:hover:not(:disabled) {
+  border-color: #71717a;
+  background: #52525b;
+}
+
+.status-code-chip:disabled {
+  cursor: default;
+}
+
+.combo-checkbox-option {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  color: #e4e4e7;
+  cursor: pointer;
+}
+
+.combo-checkbox-option input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  padding: 0;
+  accent-color: #6366f1;
+}
+
+.combo-empty {
+  margin: 0;
+  padding: 7px 8px;
+  color: #71717a;
+  font-size: 12px;
+}
+
 .content {
   flex: 1;
+  min-width: 0;
   padding: 16px;
   overflow-y: auto;
   display: flex;
