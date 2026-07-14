@@ -16,6 +16,11 @@ interface ResultImage {
   mime: string;
 }
 
+interface RetryConfig {
+  statusCodes: Set<number>;
+  maxRetries: number;
+}
+
 const SETTINGS_KEY = "gugle-ai-settings";
 
 // 插件底层的 reqwest 不读 Windows 系统代理;每次请求前都取一次,
@@ -43,6 +48,9 @@ const apiKey = ref("");
 const model = ref("gpt-image-2");
 // auto: 多参考图自动改走 chat 接口(部分中转的 edits 接口只支持单图)
 const apiMode = ref<"auto" | "images" | "chat">("auto");
+const retryEnabled = ref(false);
+const retryStatusCodes = ref("[504]");
+const retryCount = ref(5);
 const autoCheckUpdate = ref(true);
 const size = ref("auto");
 const count = ref(1);
@@ -168,6 +176,9 @@ onMounted(async () => {
       apiKey.value = s.apiKey ?? "";
       model.value = s.model ?? model.value;
       apiMode.value = s.apiMode ?? "auto";
+      retryEnabled.value = s.retryEnabled ?? false;
+      retryStatusCodes.value = s.retryStatusCodes ?? "[504]";
+      retryCount.value = s.retryCount ?? 5;
       autoCheckUpdate.value = s.autoCheckUpdate ?? true;
     } catch {}
   }
@@ -179,7 +190,7 @@ onUnmounted(() => {
   window.removeEventListener("paste", onPaste);
 });
 
-watch([endpoint, apiKey, model, apiMode, autoCheckUpdate], () => {
+watch([endpoint, apiKey, model, apiMode, retryEnabled, retryStatusCodes, retryCount, autoCheckUpdate], () => {
   localStorage.setItem(
     SETTINGS_KEY,
     JSON.stringify({
@@ -187,6 +198,9 @@ watch([endpoint, apiKey, model, apiMode, autoCheckUpdate], () => {
       apiKey: apiKey.value,
       model: model.value,
       apiMode: apiMode.value,
+      retryEnabled: retryEnabled.value,
+      retryStatusCodes: retryStatusCodes.value,
+      retryCount: retryCount.value,
       autoCheckUpdate: autoCheckUpdate.value,
     })
   );
@@ -273,16 +287,17 @@ async function generate() {
   };
 
   try {
+    const retryConfig = getRetryConfig();
     const useChat =
       apiMode.value === "chat" || (apiMode.value === "auto" && refImages.value.length > 1);
     log(
       "INFO",
-      `开始生成: 端点=${base} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value}`
+      `开始生成: 端点=${base} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
     );
     if (useChat) {
-      await generateViaChat(base, headers);
+      await generateViaChat(base, headers, retryConfig);
     } else {
-      await generateViaImages(base, headers);
+      await generateViaImages(base, headers, retryConfig);
     }
     if (results.value.length === 0) {
       throw new Error("响应中没有图片数据");
@@ -296,8 +311,59 @@ async function generate() {
   }
 }
 
+function getRetryConfig(): RetryConfig | null {
+  if (!retryEnabled.value) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(retryStatusCodes.value);
+  } catch {
+    throw new Error("重试错误码必须是 JSON 数组，例如 [504, 502]");
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    parsed.some((code) => !Number.isInteger(code) || code < 100 || code > 599)
+  ) {
+    throw new Error("重试错误码必须是由 100 到 599 整数组成的非空数组，例如 [504, 502]");
+  }
+
+  const maxRetries = Number(retryCount.value);
+  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > 20) {
+    throw new Error("重试次数必须是 1 到 20 之间的整数");
+  }
+  return { statusCodes: new Set(parsed as number[]), maxRetries };
+}
+
+async function fetchGeneration(
+  input: string,
+  init: RequestInit & ClientOptions,
+  retryConfig: RetryConfig | null
+): Promise<Response> {
+  for (let retries = 0; ; retries++) {
+    const resp = await fetch(input, init);
+    if (!retryConfig || !retryConfig.statusCodes.has(resp.status) || retries >= retryConfig.maxRetries) {
+      return resp;
+    }
+
+    // 读取并丢弃本次响应，确保连接能在下一次请求前被释放。
+    try {
+      await resp.text();
+    } catch {}
+    log(
+      "INFO",
+      `生成请求返回 ${resp.status}，1 秒后进行第 ${retries + 1}/${retryConfig.maxRetries} 次重试`
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
 // 标准 OpenAI 图像接口: 无参考图走 generations,有参考图走 edits
-async function generateViaImages(base: string, headers: Record<string, string>) {
+async function generateViaImages(
+  base: string,
+  headers: Record<string, string>,
+  retryConfig: RetryConfig | null
+) {
   let resp: Response;
   if (refImages.value.length > 0) {
     const form = new FormData();
@@ -308,18 +374,22 @@ async function generateViaImages(base: string, headers: Record<string, string>) 
     for (const img of refImages.value) {
       form.append("image[]", img.file, img.file.name);
     }
-    resp = await fetch(`${base}/images/edits`, { method: "POST", headers, body: form });
+    resp = await fetchGeneration(`${base}/images/edits`, { method: "POST", headers, body: form }, retryConfig);
   } else {
-    resp = await fetch(`${base}/images/generations`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: model.value,
-        prompt: prompt.value,
-        n: count.value,
-        ...(size.value !== "auto" ? { size: size.value } : {}),
-      }),
-    });
+    resp = await fetchGeneration(
+      `${base}/images/generations`,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: model.value,
+          prompt: prompt.value,
+          n: count.value,
+          ...(size.value !== "auto" ? { size: size.value } : {}),
+        }),
+      },
+      retryConfig
+    );
   }
 
   const data = await parseResponse(resp);
@@ -334,7 +404,11 @@ async function generateViaImages(base: string, headers: Record<string, string>) 
 
 // chat/completions 兼容链路: 参考图作为 image_url 放入消息,
 // 生成的图从返回内容里的 data URL 或 http URL 中提取
-async function generateViaChat(base: string, headers: Record<string, string>) {
+async function generateViaChat(
+  base: string,
+  headers: Record<string, string>,
+  retryConfig: RetryConfig | null
+) {
   const content: any[] = [{ type: "text", text: prompt.value }];
   for (const img of refImages.value) {
     const buf = await img.file.arrayBuffer();
@@ -344,14 +418,18 @@ async function generateViaChat(base: string, headers: Record<string, string>) {
     });
   }
 
-  const resp = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: model.value,
-      messages: [{ role: "user", content }],
-    }),
-  });
+  const resp = await fetchGeneration(
+    `${base}/chat/completions`,
+    {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: model.value,
+        messages: [{ role: "user", content }],
+      }),
+    },
+    retryConfig
+  );
 
   const data = await parseResponse(resp);
   for (const choice of data.choices ?? []) {
@@ -481,6 +559,20 @@ async function saveImage(img: ResultImage) {
           <option value="images">Images 接口</option>
           <option value="chat">Chat 接口</option>
         </select>
+      </label>
+
+      <h2>请求重试</h2>
+      <label class="checkbox-row">
+        <input v-model="retryEnabled" type="checkbox" />
+        <span>自动重试</span>
+      </label>
+      <label>
+        重试错误码
+        <input v-model="retryStatusCodes" :disabled="!retryEnabled" placeholder="[504]" />
+      </label>
+      <label>
+        重试次数
+        <input v-model.number="retryCount" :disabled="!retryEnabled" type="number" min="1" max="20" />
       </label>
 
       <h2>生成参数</h2>
