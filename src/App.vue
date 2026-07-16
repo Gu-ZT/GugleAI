@@ -94,6 +94,7 @@ const prompt = ref("");
 const refImages = ref<RefImage[]>([]);
 const results = ref<ResultImage[]>([]);
 const loading = ref(false);
+const stopping = ref(false);
 const error = ref("");
 const fileInput = ref<HTMLInputElement>();
 const dragOver = ref(false);
@@ -102,6 +103,8 @@ const logs = ref<string[]>([]);
 const showLogs = ref(false);
 const logFilePath = ref("");
 let generationSequence = 0;
+let generationAbortController: AbortController | null = null;
+let activeGenerationId: number | null = null;
 
 function redactSensitiveText(value: unknown): string {
   let text = String(value ?? "");
@@ -576,6 +579,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  generationAbortController?.abort();
   window.removeEventListener("paste", onPaste);
   document.removeEventListener("pointerdown", closePickerMenus);
 });
@@ -678,12 +682,48 @@ function removeImage(index: number) {
   refImages.value.splice(index, 1);
 }
 
+function generationAbortError(): DOMException {
+  return new DOMException("生成已停止", "AbortError");
+}
+
+function throwIfGenerationAborted(signal: AbortSignal) {
+  if (signal.aborted) throw generationAbortError();
+}
+
+function waitForRetryDelay(ms: number, signal: AbortSignal): Promise<void> {
+  throwIfGenerationAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(generationAbortError());
+    };
+    signal.addEventListener("abort", onAbort, {once: true});
+  });
+}
+
+function stopGeneration() {
+  if (!loading.value || !generationAbortController || generationAbortController.signal.aborted) return;
+  stopping.value = true;
+  log("INFO", `任务=#${activeGenerationId ?? "?"} 用户请求停止生成`);
+  generationAbortController.abort();
+}
+
 async function generate() {
+  if (loading.value) return;
   if (!prompt.value.trim()) {
     error.value = "请输入提示词";
     return;
   }
+  const generationId = ++generationSequence;
+  const abortController = new AbortController();
+  generationAbortController = abortController;
+  activeGenerationId = generationId;
   loading.value = true;
+  stopping.value = false;
   error.value = "";
   results.value = [];
 
@@ -693,7 +733,6 @@ async function generate() {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey.value}`,
   };
-  const generationId = ++generationSequence;
 
   try {
     const retryConfig = getRetryConfig();
@@ -704,18 +743,29 @@ async function generate() {
         `任务=#${generationId} 开始生成: 端点=${sanitizeUrlForLog(base)} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
     );
     if (useChat) {
-      await generateViaChat(base, headers, retryConfig, generationId);
+      await generateViaChat(base, headers, retryConfig, generationId, abortController.signal);
     } else {
-      await generateViaImages(base, headers, retryConfig, generationId);
+      await generateViaImages(base, headers, retryConfig, generationId, abortController.signal);
     }
+    throwIfGenerationAborted(abortController.signal);
     if (results.value.length === 0) {
       throw new Error("响应中没有图片数据");
     }
     log("INFO", `任务=#${generationId} 生成成功: ${results.value.length} 张图片`);
   } catch (e: unknown) {
-    error.value = errorMessage(e);
-    log("ERROR", `任务=#${generationId} 生成失败: ${formatErrorDetails(e)}`);
+    if (abortController.signal.aborted) {
+      error.value = "";
+      log("INFO", `任务=#${generationId} 生成已停止`);
+    } else {
+      error.value = errorMessage(e);
+      log("ERROR", `任务=#${generationId} 生成失败: ${formatErrorDetails(e)}`);
+    }
   } finally {
+    if (generationAbortController === abortController) {
+      generationAbortController = null;
+      activeGenerationId = null;
+    }
+    stopping.value = false;
     loading.value = false;
   }
 }
@@ -741,12 +791,14 @@ async function fetchGeneration(
     input: string,
     init: RequestInit & ClientOptions,
     retryConfig: RetryConfig | null,
-    generationId: number
+    generationId: number,
+    signal: AbortSignal
 ): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const address = sanitizeUrlForLog(input);
   const bodyDescription = describeRequestBody(init.body);
   for (let retries = 0; ; retries++) {
+    throwIfGenerationAborted(signal);
     const startedAt = Date.now();
     log(
         "INFO",
@@ -754,9 +806,16 @@ async function fetchGeneration(
     );
     let resp: Response;
     try {
-      resp = await fetch(input, init);
+      resp = await fetch(input, {...init, signal});
     } catch (requestError: unknown) {
       const elapsedMs = Date.now() - startedAt;
+      if (signal.aborted) {
+        log(
+            "INFO",
+            `任务=#${generationId} 生成请求已取消: 方法=${method} 地址=${address} 用时=${(elapsedMs / 1000).toFixed(1)}s`
+        );
+        throw requestError;
+      }
       const timeoutHint = elapsedMs >= 55_000
           ? "；耗时接近或超过 60 秒,优先检查上游响应超时、代理连接和网络链路"
           : "";
@@ -766,6 +825,7 @@ async function fetchGeneration(
       );
       throw requestError;
     }
+    throwIfGenerationAborted(signal);
     const elapsedMs = Date.now() - startedAt;
     log(
         "INFO",
@@ -779,13 +839,14 @@ async function fetchGeneration(
     try {
       await resp.text();
     } catch (readError: unknown) {
+      if (signal.aborted) throw readError;
       log("ERROR", `任务=#${generationId} 释放重试响应失败: ${formatErrorDetails(readError)}`);
     }
     log(
         "INFO",
         `任务=#${generationId} 生成请求返回 ${resp.status}，1 秒后进行第 ${retries + 1}/${retryConfig.maxRetries} 次重试`
     );
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await waitForRetryDelay(1000, signal);
   }
 }
 
@@ -794,8 +855,10 @@ async function generateViaImages(
     base: string,
     headers: Record<string, string>,
     retryConfig: RetryConfig | null,
-    generationId: number
+    generationId: number,
+    signal: AbortSignal
 ) {
+  throwIfGenerationAborted(signal);
   let resp: Response;
   if (refImages.value.length > 0) {
     const form = new FormData();
@@ -810,7 +873,8 @@ async function generateViaImages(
         `${base}/images/edits`,
         {method: "POST", headers, body: form},
         retryConfig,
-        generationId
+        generationId,
+        signal
     );
   } else {
     resp = await fetchGeneration(
@@ -826,16 +890,19 @@ async function generateViaImages(
           }),
         },
         retryConfig,
-        generationId
+        generationId,
+        signal
     );
   }
 
   const data = await parseResponse(resp);
+  throwIfGenerationAborted(signal);
   for (const item of data.data ?? []) {
+    throwIfGenerationAborted(signal);
     if (item.b64_json) {
       results.value.push({base64: item.b64_json, mime: "image/png"});
     } else if (item.url) {
-      await downloadResult(base, item.url);
+      await downloadResult(base, item.url, signal);
     }
   }
 }
@@ -846,11 +913,14 @@ async function generateViaChat(
     base: string,
     headers: Record<string, string>,
     retryConfig: RetryConfig | null,
-    generationId: number
+    generationId: number,
+    signal: AbortSignal
 ) {
   const content: any[] = [{type: "text", text: prompt.value}];
   for (const img of refImages.value) {
+    throwIfGenerationAborted(signal);
     const buf = await img.file.arrayBuffer();
+    throwIfGenerationAborted(signal);
     content.push({
       type: "image_url",
       image_url: {url: `data:${img.file.type || "image/png"};base64,${bufToBase64(buf)}`},
@@ -868,40 +938,46 @@ async function generateViaChat(
         }),
       },
       retryConfig,
-      generationId
+      generationId,
+      signal
   );
 
   const data = await parseResponse(resp);
+  throwIfGenerationAborted(signal);
   for (const choice of data.choices ?? []) {
+    throwIfGenerationAborted(signal);
     const msg = choice.message ?? {};
     // 部分服务把图放在 message.images 数组里
     for (const img of msg.images ?? []) {
       const url = img?.image_url?.url ?? img?.url;
-      if (url) await collectChatImage(base, url);
+      if (url) await collectChatImage(base, url, signal);
     }
     const text: string = typeof msg.content === "string" ? msg.content : "";
     for (const m of text.matchAll(/data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)/g)) {
+      throwIfGenerationAborted(signal);
       results.value.push({base64: m[2], mime: m[1]});
     }
     // 内容里没有内嵌 base64 时,再找 markdown 图片链接
     if (results.value.length === 0) {
       for (const m of text.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g)) {
-        await collectChatImage(base, m[1]);
+        await collectChatImage(base, m[1], signal);
       }
     }
   }
 }
 
-async function collectChatImage(base: string, url: string) {
+async function collectChatImage(base: string, url: string, signal: AbortSignal) {
+  throwIfGenerationAborted(signal);
   const dataUrl = url.match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/);
   if (dataUrl) {
     results.value.push({base64: dataUrl[2], mime: dataUrl[1]});
   } else {
-    await downloadResult(base, url);
+    await downloadResult(base, url, signal);
   }
 }
 
-async function downloadResult(base: string, url: string) {
+async function downloadResult(base: string, url: string, signal: AbortSignal) {
+  throwIfGenerationAborted(signal);
   // 相对路径先拼完整端点,404 再回退到域名根(不同中转的挂载位置不一样)
   const candidates: string[] = [];
   if (/^https?:\/\//i.test(url)) {
@@ -917,10 +993,12 @@ async function downloadResult(base: string, url: string) {
   }
   let lastStatus = 0;
   for (const imgUrl of candidates) {
+    throwIfGenerationAborted(signal);
     log("INFO", `下载图片: ${sanitizeUrlForLog(imgUrl)}`);
-    const imgResp = await fetch(imgUrl);
+    const imgResp = await fetch(imgUrl, {signal});
     if (imgResp.ok) {
       const buf = await imgResp.arrayBuffer();
+      throwIfGenerationAborted(signal);
       results.value.push({
         base64: bufToBase64(buf),
         mime: imgResp.headers.get("content-type") ?? "image/png",
@@ -1293,9 +1371,21 @@ async function saveImage(img: ResultImage) {
 
         <div class="actions">
           <span class="hint">{{ hintText }}</span>
-          <button class="generate" :disabled="loading" @click="generate">
-            {{ loading ? "生成中..." : "生成 (Ctrl+Enter)" }}
-          </button>
+          <div class="action-buttons">
+            <button
+                v-if="loading"
+                type="button"
+                class="stop-generation"
+                :disabled="stopping"
+                @click="stopGeneration"
+            >
+              <span class="stop-icon" aria-hidden="true"></span>
+              {{ stopping ? "停止中..." : "停止" }}
+            </button>
+            <button class="generate" :disabled="loading" @click="generate">
+              {{ loading ? "生成中..." : "生成 (Ctrl+Enter)" }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1930,17 +2020,31 @@ textarea {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
 .hint {
+  flex: 1 1 140px;
+  min-width: 0;
   font-size: 12px;
   color: #71717a;
 }
 
+.action-buttons {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  margin-left: auto;
+}
+
 .generate {
+  min-width: 150px;
   font: inherit;
   padding: 10px 24px;
   border: none;
@@ -1948,6 +2052,39 @@ textarea {
   background: #6366f1;
   color: #fff;
   cursor: pointer;
+}
+
+.stop-generation {
+  display: inline-flex;
+  min-width: 88px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid #b91c1c;
+  border-radius: 6px;
+  background: #7f1d1d55;
+  color: #fca5a5;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stop-generation:hover:not(:disabled) {
+  background: #7f1d1d99;
+  color: #fecaca;
+}
+
+.stop-generation:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.stop-icon {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 1px;
+  background: currentColor;
 }
 
 .generate:hover:not(:disabled) {
