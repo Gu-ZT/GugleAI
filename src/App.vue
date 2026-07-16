@@ -572,7 +572,7 @@ async function clearResultHistory() {
 
 function openResultContextMenu(event: MouseEvent, image: ResultImage) {
   const menuWidth = 176;
-  const menuHeight = 126;
+  const menuHeight = 164;
   const viewportPadding = 8;
   resultContextMenu.value = {
     image,
@@ -632,6 +632,26 @@ async function copyResultPrompt(image: ResultImage) {
   }
   showPreviewNotice("提示词已复制");
   log("INFO", "已复制预览图片的提示词");
+}
+
+function setResultAsReference(image: ResultImage) {
+  closeResultContextMenu();
+  const extension = image.mime.includes("jpeg")
+      ? "jpg"
+      : image.mime.includes("webp")
+          ? "webp"
+          : "png";
+  try {
+    const file = new File([image.blob], `generated-${image.createdAt}.${extension}`, {
+      type: image.mime,
+      lastModified: image.createdAt,
+    });
+    addFile(file);
+    showPreviewNotice("已添加为参考图");
+    log("INFO", "已将预览图片添加为参考图");
+  } catch (e: unknown) {
+    error.value = `添加参考图失败: ${errorMessage(e)}`;
+  }
 }
 
 async function saveResultFromContextMenu(image: ResultImage) {
@@ -1796,6 +1816,13 @@ async function saveImage(img: ResultImage) {
             @click="copyResultPrompt(resultContextMenu.image)"
         >
           复制提示词
+        </button>
+        <button
+            type="button"
+            role="menuitem"
+            @click="setResultAsReference(resultContextMenu.image)"
+        >
+          设置为参考图
         </button>
         <button
             type="button"
