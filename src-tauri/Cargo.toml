@@ -1,6 +1,6 @@
 [package]
 name = "gugle-ai"
-version = "0.10.0"
+version = "0.11.0"
 description = "A Tauri App"
 authors = ["you"]
 license = "LGPL-3.0-only"

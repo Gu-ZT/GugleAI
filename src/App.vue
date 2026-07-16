@@ -122,6 +122,7 @@ const fileInput = ref<HTMLInputElement>();
 const dragOver = ref(false);
 const resultContextMenu = ref<ResultContextMenuState | null>(null);
 const resultContextMenuElement = ref<HTMLElement>();
+const enlargedResult = ref<ResultImage | null>(null);
 const previewNotice = ref("");
 
 const logs = ref<string[]>([]);
@@ -544,6 +545,7 @@ async function restoreResultHistory() {
 
 async function deleteResultImage(image: ResultImage) {
   if (resultContextMenu.value?.image.id === image.id) closeResultContextMenu();
+  if (enlargedResult.value?.id === image.id) closeResultLightbox();
   try {
     await deleteStoredResultImage(image.id);
     const index = results.value.findIndex((item) => item.id === image.id);
@@ -560,6 +562,7 @@ async function clearResultHistory() {
   if (historyLoading.value || results.value.length === 0) return;
   if (!window.confirm(`确定清空全部 ${results.value.length} 张预览图片吗？此操作无法撤销。`)) return;
   closeResultContextMenu();
+  closeResultLightbox();
   try {
     await clearStoredResultImages();
     for (const image of results.value) URL.revokeObjectURL(image.previewUrl);
@@ -572,7 +575,7 @@ async function clearResultHistory() {
 
 function openResultContextMenu(event: MouseEvent, image: ResultImage) {
   const menuWidth = 176;
-  const menuHeight = 164;
+  const menuHeight = 202;
   const viewportPadding = 8;
   resultContextMenu.value = {
     image,
@@ -583,6 +586,15 @@ function openResultContextMenu(event: MouseEvent, image: ResultImage) {
 
 function closeResultContextMenu() {
   resultContextMenu.value = null;
+}
+
+function openResultLightbox(image: ResultImage) {
+  closeResultContextMenu();
+  enlargedResult.value = image;
+}
+
+function closeResultLightbox() {
+  enlargedResult.value = null;
 }
 
 function showPreviewNotice(message: string) {
@@ -632,6 +644,43 @@ async function copyResultPrompt(image: ResultImage) {
   }
   showPreviewNotice("提示词已复制");
   log("INFO", "已复制预览图片的提示词");
+}
+
+async function convertImageBlobToPng(blob: Blob): Promise<Blob> {
+  if (blob.type === "image/png") return blob;
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("无法创建图片转换画布");
+    context.drawImage(bitmap, 0, 0);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+          (pngBlob) => pngBlob ? resolve(pngBlob) : reject(new Error("无法将图片转换为 PNG")),
+          "image/png"
+      );
+    });
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function copyResultImage(image: ResultImage) {
+  closeResultContextMenu();
+  try {
+    if (typeof ClipboardItem === "undefined" || typeof navigator.clipboard?.write !== "function") {
+      throw new Error("当前系统 WebView 不支持复制图片");
+    }
+    const pngBlob = convertImageBlobToPng(image.blob);
+    await navigator.clipboard.write([new ClipboardItem({"image/png": pngBlob})]);
+    showPreviewNotice("图片已复制到剪贴板");
+    log("INFO", "已复制预览图片到剪贴板");
+  } catch (e: unknown) {
+    error.value = `复制图片失败: ${errorMessage(e)}`;
+    log("ERROR", `复制预览图片到剪贴板失败: ${formatErrorDetails(e)}`);
+  }
 }
 
 function setResultAsReference(image: ResultImage) {
@@ -836,8 +885,10 @@ function closePickerMenus(e: PointerEvent) {
   if (!resultContextMenuElement.value?.contains(target)) closeResultContextMenu();
 }
 
-function closeResultContextMenuOnEscape(e: KeyboardEvent) {
-  if (e.key === "Escape") closeResultContextMenu();
+function closeResultOverlaysOnEscape(e: KeyboardEvent) {
+  if (e.key !== "Escape") return;
+  closeResultContextMenu();
+  closeResultLightbox();
 }
 
 onMounted(async () => {
@@ -891,7 +942,7 @@ onMounted(async () => {
   window.addEventListener("resize", closeResultContextMenu);
   window.addEventListener("scroll", closeResultContextMenu, true);
   document.addEventListener("pointerdown", closePickerMenus);
-  document.addEventListener("keydown", closeResultContextMenuOnEscape);
+  document.addEventListener("keydown", closeResultOverlaysOnEscape);
   await restoreResultHistory();
   if (autoCheckUpdate.value) checkUpdate(false);
 });
@@ -905,7 +956,7 @@ onUnmounted(() => {
   window.removeEventListener("resize", closeResultContextMenu);
   window.removeEventListener("scroll", closeResultContextMenu, true);
   document.removeEventListener("pointerdown", closePickerMenus);
-  document.removeEventListener("keydown", closeResultContextMenuOnEscape);
+  document.removeEventListener("keydown", closeResultOverlaysOnEscape);
 });
 
 watch(
@@ -1786,6 +1837,7 @@ async function saveImage(img: ResultImage) {
             <img
                 :src="img.previewUrl"
                 alt="生成结果"
+                @dblclick.prevent="openResultLightbox(img)"
                 @contextmenu.prevent="openResultContextMenu($event, img)"
             />
             <div class="result-actions">
@@ -1820,6 +1872,13 @@ async function saveImage(img: ResultImage) {
         <button
             type="button"
             role="menuitem"
+            @click="copyResultImage(resultContextMenu.image)"
+        >
+          复制到剪贴板
+        </button>
+        <button
+            type="button"
+            role="menuitem"
             @click="setResultAsReference(resultContextMenu.image)"
         >
           设置为参考图
@@ -1839,6 +1898,31 @@ async function saveImage(img: ResultImage) {
         >
           删除图片
         </button>
+      </div>
+
+      <div
+          v-if="enlargedResult"
+          class="result-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="放大预览"
+          @mousedown.self="closeResultLightbox"
+          @wheel.stop
+      >
+        <button
+            type="button"
+            class="lightbox-close"
+            aria-label="关闭放大预览"
+            title="关闭"
+            @click="closeResultLightbox"
+        >
+          ×
+        </button>
+        <img
+            :src="enlargedResult.previewUrl"
+            alt="放大的生成结果"
+            @dblclick.prevent="closeResultLightbox"
+        />
       </div>
     </section>
 
@@ -2706,7 +2790,7 @@ textarea {
   border-radius: 8px;
   border: 1px solid #3f3f46;
   background: #111113;
-  cursor: context-menu;
+  cursor: zoom-in;
 }
 
 .result-actions {
@@ -2776,6 +2860,53 @@ textarea {
 .result-context-menu .context-delete:hover {
   background: #7f1d1d99;
   color: #fecaca;
+}
+
+.result-lightbox {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #09090be8;
+  overscroll-behavior: contain;
+}
+
+.result-lightbox img {
+  display: block;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 16px 48px #000c;
+  cursor: zoom-out;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #52525b;
+  border-radius: 6px;
+  background: #27272a;
+  color: #f4f4f5;
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lightbox-close:hover {
+  border-color: #a1a1aa;
+  background: #3f3f46;
 }
 
 .placeholder {
