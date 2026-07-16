@@ -21,7 +21,15 @@ interface RetryConfig {
   maxRetries: number;
 }
 
+interface ConnectionProfile {
+  id: string;
+  endpoint: string;
+  apiKey: string;
+}
+
 const SETTINGS_KEY = "gugle-ai-settings";
+const DEFAULT_ENDPOINT = "https://api.openai.com/v1";
+const DEFAULT_CONNECTION_ID = "default-openai";
 const DEFAULT_MODEL_OPTIONS = [
   "gpt-image-2",
   "grok-imagine",
@@ -52,8 +60,18 @@ async function fetch(input: string, init?: RequestInit & ClientOptions): Promise
   return httpFetch(input, opts);
 }
 
-const endpoint = ref("https://api.openai.com/v1");
+const endpoint = ref(DEFAULT_ENDPOINT);
 const apiKey = ref("");
+const connectionProfiles = ref<ConnectionProfile[]>([
+  {id: DEFAULT_CONNECTION_ID, endpoint: DEFAULT_ENDPOINT, apiKey: ""},
+]);
+const activeConnectionId = ref(DEFAULT_CONNECTION_ID);
+const connectionMenuOpen = ref(false);
+const connectionPicker = ref<HTMLElement>();
+const connectionModalOpen = ref(false);
+const connectionDraftEndpoint = ref("");
+const connectionDraftApiKey = ref("");
+const connectionDraftError = ref("");
 const model = ref("gpt-image-2");
 const modelOptions = ref([...DEFAULT_MODEL_OPTIONS]);
 const modelMenuOpen = ref(false);
@@ -87,7 +105,19 @@ let generationSequence = 0;
 
 function redactSensitiveText(value: unknown): string {
   let text = String(value ?? "");
-  if (apiKey.value) text = text.split(apiKey.value).join("[已隐藏 API Key]");
+  const savedKeys = connectionProfiles.value.map((profile) => profile.apiKey);
+  for (const savedKey of new Set([apiKey.value, ...savedKeys])) {
+    if (!savedKey) continue;
+    if (savedKey.length >= 8) {
+      text = text.split(savedKey).join("[已隐藏 API Key]");
+    } else {
+      const escapedKey = savedKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      text = text.replace(
+          new RegExp(`(^|[^A-Za-z0-9])${escapedKey}(?=$|[^A-Za-z0-9])`, "g"),
+          "$1[已隐藏 API Key]"
+      );
+    }
+  }
   return text
       .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, "$1 [已隐藏]")
       .replace(
@@ -315,6 +345,103 @@ const showRetryStatusCodeInputAction = computed(() => {
   return code !== null && !retryStatusCodes.value.includes(code);
 });
 
+function maskApiKey(value: string): string {
+  const key = value.trim();
+  if (!key) return "未设置";
+  if (key.length <= 8) return "••••••••";
+  const prefix = key.startsWith("sk-") ? "sk-" : "";
+  return `${prefix}••••${key.slice(-4)}`;
+}
+
+function createConnectionId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `connection-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizeConnectionProfiles(value: unknown): ConnectionProfile[] {
+  if (!Array.isArray(value)) return [];
+  const profiles: ConnectionProfile[] = [];
+  const usedIds = new Set<string>();
+  const usedPairs = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const profileEndpoint = typeof record.endpoint === "string" ? record.endpoint.trim() : "";
+    const profileApiKey = typeof record.apiKey === "string" ? record.apiKey.trim() : "";
+    if (!profileEndpoint) continue;
+    const pair = `${profileEndpoint}\u0000${profileApiKey}`;
+    if (usedPairs.has(pair)) continue;
+    let id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : createConnectionId();
+    if (usedIds.has(id)) id = createConnectionId();
+    profiles.push({id, endpoint: profileEndpoint, apiKey: profileApiKey});
+    usedIds.add(id);
+    usedPairs.add(pair);
+  }
+  return profiles;
+}
+
+function connectionOptionNumber(profile: ConnectionProfile): number {
+  return connectionProfiles.value.findIndex((item) => item.id === profile.id) + 1;
+}
+
+function selectConnection(profile: ConnectionProfile) {
+  activeConnectionId.value = profile.id;
+  endpoint.value = profile.endpoint;
+  apiKey.value = profile.apiKey;
+  connectionMenuOpen.value = false;
+}
+
+function addAndSelectConnection(endpointValue: string, apiKeyValue: string) {
+  const profileEndpoint = endpointValue.trim();
+  const profileApiKey = apiKeyValue.trim();
+  if (!profileEndpoint) return false;
+  const existing = connectionProfiles.value.find(
+      (profile) => profile.endpoint === profileEndpoint && profile.apiKey === profileApiKey
+  );
+  if (existing) {
+    selectConnection(existing);
+    return true;
+  }
+  const profile: ConnectionProfile = {
+    id: createConnectionId(),
+    endpoint: profileEndpoint,
+    apiKey: profileApiKey,
+  };
+  connectionProfiles.value = [...connectionProfiles.value, profile];
+  selectConnection(profile);
+  return true;
+}
+
+function openConnectionModal() {
+  connectionDraftEndpoint.value = "";
+  connectionDraftApiKey.value = "";
+  connectionDraftError.value = "";
+  connectionMenuOpen.value = false;
+  connectionModalOpen.value = true;
+}
+
+function closeConnectionModal() {
+  connectionModalOpen.value = false;
+  connectionDraftEndpoint.value = "";
+  connectionDraftApiKey.value = "";
+  connectionDraftError.value = "";
+}
+
+function saveConnectionDraft() {
+  if (!connectionDraftEndpoint.value.trim()) {
+    connectionDraftError.value = "请输入 API 端点";
+    return;
+  }
+  addAndSelectConnection(connectionDraftEndpoint.value, connectionDraftApiKey.value);
+  closeConnectionModal();
+}
+
+function removeConnection(profile: ConnectionProfile) {
+  if (connectionProfiles.value.length <= 1) return;
+  const remaining = connectionProfiles.value.filter((item) => item.id !== profile.id);
+  connectionProfiles.value = remaining;
+  if (activeConnectionId.value === profile.id) selectConnection(remaining[0]);
+}
+
 function normalizeModelOptions(value: unknown): string[] {
   const saved = Array.isArray(value)
       ? value.filter((option): option is string => typeof option === "string" && option.trim().length > 0)
@@ -387,6 +514,7 @@ function removeRetryStatusCodeOption(code: number) {
 
 function closePickerMenus(e: PointerEvent) {
   const target = e.target as Node;
+  if (!connectionPicker.value?.contains(target)) connectionMenuOpen.value = false;
   if (!modelPicker.value?.contains(target)) {
     modelMenuOpen.value = false;
     modelShowAll.value = true;
@@ -401,8 +529,26 @@ onMounted(async () => {
   if (saved) {
     try {
       const s = JSON.parse(saved);
-      endpoint.value = s.endpoint ?? endpoint.value;
-      apiKey.value = s.apiKey ?? "";
+      const savedEndpoint = typeof s.endpoint === "string" && s.endpoint.trim()
+          ? s.endpoint.trim()
+          : DEFAULT_ENDPOINT;
+      const savedApiKey = typeof s.apiKey === "string" ? s.apiKey.trim() : "";
+      const restoredProfiles = normalizeConnectionProfiles(s.connectionProfiles);
+      if (restoredProfiles.length === 0) {
+        restoredProfiles.push({
+          id: savedEndpoint === DEFAULT_ENDPOINT && !savedApiKey ? DEFAULT_CONNECTION_ID : createConnectionId(),
+          endpoint: savedEndpoint,
+          apiKey: savedApiKey,
+        });
+      }
+      connectionProfiles.value = restoredProfiles;
+      const savedActiveId = typeof s.activeConnectionId === "string" ? s.activeConnectionId : "";
+      const activeProfile = restoredProfiles.find((profile) => profile.id === savedActiveId)
+          ?? restoredProfiles.find(
+              (profile) => profile.endpoint === savedEndpoint && profile.apiKey === savedApiKey
+          )
+          ?? restoredProfiles[0];
+      selectConnection(activeProfile);
       model.value = s.model ?? model.value;
       modelOptions.value = normalizeModelOptions(s.modelOptions);
       const savedModel = model.value.trim();
@@ -438,6 +584,8 @@ watch(
     [
       endpoint,
       apiKey,
+      connectionProfiles,
+      activeConnectionId,
       model,
       modelOptions,
       apiMode,
@@ -453,6 +601,8 @@ watch(
           JSON.stringify({
             endpoint: endpoint.value,
             apiKey: apiKey.value,
+            connectionProfiles: connectionProfiles.value,
+            activeConnectionId: activeConnectionId.value,
             model: model.value,
             modelOptions: modelOptions.value,
             apiMode: apiMode.value,
@@ -493,10 +643,8 @@ function tryApplyConnConfig(text: string): boolean {
   if (text.startsWith("{") && text.includes("newapi_channel_conn")) {
     try {
       const conn = JSON.parse(text);
-      if (conn.url && conn.key) {
-        endpoint.value = conn.url;
-        apiKey.value = conn.key;
-        return true;
+      if (typeof conn.url === "string" && conn.url && typeof conn.key === "string" && conn.key) {
+        return addAndSelectConnection(conn.url, conn.key);
       }
     } catch {
     }
@@ -504,8 +652,7 @@ function tryApplyConnConfig(text: string): boolean {
   if (/^\[model_providers\.[^\]]+\]/m.test(text)) {
     const m = text.match(/^\[model_providers\.[^\]]+\][^[]*?^\s*base_url\s*=\s*"([^"]+)"/ms);
     if (m) {
-      endpoint.value = m[1];
-      return true;
+      return addAndSelectConnection(m[1], "");
     }
   }
   return false;
@@ -837,14 +984,66 @@ async function saveImage(img: ResultImage) {
   <main class="app">
     <aside class="sidebar">
       <h2>连接设置</h2>
-      <label>
-        API 端点
-        <input v-model="endpoint" placeholder="https://api.openai.com/v1"/>
-      </label>
-      <label>
-        API Key
-        <input v-model="apiKey" type="password" placeholder="sk-..."/>
-      </label>
+      <div class="field">
+        <label id="connection-picker-label">API 连接</label>
+        <div ref="connectionPicker" class="combo-picker">
+          <button
+              type="button"
+              class="connection-control"
+              :class="{ open: connectionMenuOpen }"
+              aria-haspopup="listbox"
+              aria-controls="connection-option-list"
+              :aria-expanded="connectionMenuOpen"
+              aria-labelledby="connection-picker-label"
+              @click="connectionMenuOpen = !connectionMenuOpen"
+          >
+            <span class="connection-summary">
+              <span class="connection-endpoint" :title="endpoint">{{ endpoint }}</span>
+              <span class="connection-key">Key {{ maskApiKey(apiKey) }}</span>
+            </span>
+            <span class="connection-chevron" aria-hidden="true">
+              <span class="chevron"></span>
+            </span>
+          </button>
+          <div v-if="connectionMenuOpen" id="connection-option-list" class="combo-menu" role="listbox">
+            <div
+                v-for="profile in connectionProfiles"
+                :key="profile.id"
+                class="combo-option-row connection-option-row"
+                :class="{ selected: activeConnectionId === profile.id }"
+            >
+              <button
+                  type="button"
+                  class="combo-option-main connection-option"
+                  role="option"
+                  :aria-selected="activeConnectionId === profile.id"
+                  :aria-label="`选择连接 ${connectionOptionNumber(profile)}，${profile.endpoint}，Key ${maskApiKey(profile.apiKey)}`"
+                  @click="selectConnection(profile)"
+              >
+                <span class="connection-option-content">
+                  <span class="connection-endpoint" :title="profile.endpoint">{{ profile.endpoint }}</span>
+                  <span class="connection-key">Key {{ maskApiKey(profile.apiKey) }}</span>
+                </span>
+                <span v-if="activeConnectionId === profile.id" class="combo-check" aria-hidden="true">✓</span>
+              </button>
+              <button
+                  v-if="connectionProfiles.length > 1"
+                  type="button"
+                  class="combo-remove-option"
+                  :aria-label="`删除连接 ${connectionOptionNumber(profile)}，${profile.endpoint}`"
+                  title="删除连接"
+                  @click="removeConnection(profile)"
+              >
+                ×
+              </button>
+            </div>
+            <button type="button" class="combo-add" @click="openConnectionModal">
+              <span aria-hidden="true">＋</span>
+              <span>添加连接</span>
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="field">
         <label for="model-input">模型 ID</label>
         <div ref="modelPicker" class="combo-picker">
@@ -1120,6 +1319,48 @@ async function saveImage(img: ResultImage) {
       <div v-else-if="!loading" class="placeholder">生成的图片将显示在这里</div>
       <div v-if="loading" class="placeholder">正在生成,请稍候...</div>
     </section>
+
+    <div v-if="connectionModalOpen" class="modal-backdrop" @mousedown.self="closeConnectionModal">
+      <form
+          class="connection-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="connection-modal-title"
+          @submit.prevent="saveConnectionDraft"
+          @keydown.esc.prevent="closeConnectionModal"
+      >
+        <div class="modal-header">
+          <h2 id="connection-modal-title">添加 API 连接</h2>
+          <button type="button" aria-label="关闭" title="关闭" @click="closeConnectionModal">×</button>
+        </div>
+        <label for="connection-endpoint-input">
+          API 端点
+          <input
+              id="connection-endpoint-input"
+              v-model="connectionDraftEndpoint"
+              autofocus
+              autocomplete="off"
+              placeholder="https://api.openai.com/v1"
+              @input="connectionDraftError = ''"
+          />
+        </label>
+        <label for="connection-api-key-input">
+          API Key（可选）
+          <input
+              id="connection-api-key-input"
+              v-model="connectionDraftApiKey"
+              type="password"
+              autocomplete="new-password"
+              placeholder="sk-..."
+          />
+        </label>
+        <p v-if="connectionDraftError" class="modal-error">{{ connectionDraftError }}</p>
+        <div class="modal-actions">
+          <button type="button" class="modal-cancel" @click="closeConnectionModal">取消</button>
+          <button type="submit" class="modal-save">保存连接</button>
+        </div>
+      </form>
+    </div>
   </main>
 </template>
 
@@ -1227,6 +1468,76 @@ textarea:focus {
 
 .combo-control.disabled {
   opacity: 0.5;
+}
+
+.connection-control {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  padding: 0 0 0 10px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #27272a;
+  color: #e4e4e7;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.connection-control:hover,
+.connection-control:focus-visible,
+.connection-control.open {
+  border-color: #6366f1;
+  outline: none;
+}
+
+.connection-summary,
+.connection-option-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.connection-endpoint {
+  min-width: 0;
+  overflow: hidden;
+  color: #e4e4e7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-key {
+  overflow: hidden;
+  color: #71717a;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-chevron {
+  display: flex;
+  width: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  color: #a1a1aa;
+}
+
+.connection-control.open .chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.connection-option-row {
+  min-height: 48px;
+}
+
+.connection-option {
+  align-self: stretch;
 }
 
 .combo-control > input {
@@ -1439,6 +1750,108 @@ textarea:focus {
   padding: 7px 8px;
   color: #71717a;
   font-size: 12px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #09090bb8;
+}
+
+.connection-modal {
+  display: flex;
+  width: min(400px, 100%);
+  max-height: calc(100vh - 32px);
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid #3f3f46;
+  border-radius: 8px;
+  background: #1f1f23;
+  box-shadow: 0 16px 48px #000a;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: #e4e4e7;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.modal-header button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #a1a1aa;
+  font: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.modal-header button:hover {
+  background: #323237;
+  color: #e4e4e7;
+}
+
+.connection-modal input {
+  width: 100%;
+}
+
+.modal-error {
+  margin: -4px 0 0;
+  color: #fca5a5;
+  font-size: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-actions button {
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.modal-cancel {
+  border: 1px solid #3f3f46;
+  background: #27272a;
+  color: #d4d4d8;
+}
+
+.modal-save {
+  border: 1px solid #6366f1;
+  background: #6366f1;
+  color: #fff;
+}
+
+.modal-cancel:hover {
+  border-color: #71717a;
+}
+
+.modal-save:hover {
+  background: #818cf8;
 }
 
 .content {

@@ -6,8 +6,8 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 
 ## Features
 
-- **Custom connection**: freely configure the API endpoint, API key and model ID, all persisted automatically; model IDs can be selected from a dropdown or saved as custom options; `/v1` is appended automatically when the endpoint omits it
-- **Paste-to-configure**: press Ctrl+V to import connection settings, supporting newapi channel JSON (`{"_type":"newapi_channel_conn",...}`) and Codex CLI `config.toml` (extracts `base_url`)
+- **Custom connection**: save API endpoints and API keys together as connection profiles, switch them from one dropdown, and add profiles in a modal; keys only show redacted previews; model IDs remain independently selectable and extensible; `/v1` is appended automatically when an endpoint omits it
+- **Paste-to-configure**: press Ctrl+V to add and switch to an imported connection, supporting newapi channel JSON (`{"_type":"newapi_channel_conn",...}`) and Codex CLI `config.toml` (extracts `base_url`)
 - **Text to image**: generate images from a prompt via `/images/generations`
 - **Reference images**: attach any number of reference images via file picker, drag & drop, or clipboard paste
 - **API mode**: Auto / Images API / Chat API; in Auto mode, multiple reference images are routed through `/chat/completions`, working around relays whose edits endpoint only accepts a single image
@@ -37,7 +37,7 @@ pnpm tauri build
 
 ## Usage
 
-1. Fill in the API endpoint (e.g. `https://api.openai.com/v1` or a relay URL) and API key, then select a model ID from the dropdown or save a custom model — or simply paste a connection config
+1. Switch paired endpoints and keys from the **API Connection** dropdown, or add one in the modal; model IDs remain independently selectable, and connection configs can also be pasted directly
 2. Enter a prompt and optionally add reference images (file picker / drag onto the plus button / Ctrl+V a screenshot)
 3. Click **Generate** (or Ctrl+Enter), then click **Save** under any result to store it locally
 

@@ -6,8 +6,8 @@
 
 ## 功能
 
-- **自定义连接**:API 端点、API Key、模型 ID 均可自由配置,自动保存;模型 ID 可从下拉菜单选择,也可保存自定义选项;端点不带 `/v1` 时自动补全
-- **粘贴导入配置**:直接 Ctrl+V 粘贴连接配置自动填充,支持 newapi 渠道 JSON(`{"_type":"newapi_channel_conn",...}`)和 Codex CLI `config.toml`(提取 `base_url`)
+- **自定义连接**:API 端点和 API Key 成对保存为连接配置,可从同一个下拉菜单切换,并通过弹出层添加;Key 仅显示脱敏摘要;模型 ID 可单独切换或保存自定义选项;端点不带 `/v1` 时自动补全
+- **粘贴导入配置**:直接 Ctrl+V 粘贴连接配置自动添加并切换到对应连接,支持 newapi 渠道 JSON(`{"_type":"newapi_channel_conn",...}`)和 Codex CLI `config.toml`(提取 `base_url`)
 - **文生图**:输入提示词调用 `/images/generations` 生成图片
 - **参考图编辑**:添加任意数量的参考图,支持文件选择、拖拽和剪贴板粘贴
 - **接口模式**:自动 / Images 接口 / Chat 接口三种模式;自动模式下多参考图改走 `/chat/completions`,兼容 edits 只支持单图的中转服务
@@ -37,7 +37,7 @@ pnpm tauri build
 
 ## 使用
 
-1. 在左侧设置栏填入 API 端点(如 `https://api.openai.com/v1` 或中转地址)、API Key,并从下拉菜单选择模型 ID 或保存自定义模型,也可以直接粘贴连接配置
+1. 在左侧设置栏从「API 连接」下拉菜单切换端点与 Key,或在弹出层添加连接;模型 ID 可从下拉菜单切换,也可以直接粘贴连接配置
 2. 输入提示词,可选添加参考图(文件选择 / 拖拽到加号 / Ctrl+V 粘贴截图)
 3. 点击「生成」(或 Ctrl+Enter),结果出现后点击「保存」存到本地
 
