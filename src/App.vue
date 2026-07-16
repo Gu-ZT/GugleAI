@@ -12,8 +12,26 @@ interface RefImage {
 }
 
 interface ResultImage {
-  base64: string;
+  id: string;
+  blob: Blob;
   mime: string;
+  prompt: string;
+  previewUrl: string;
+  createdAt: number;
+}
+
+interface StoredResultImage {
+  id: string;
+  blob: Blob;
+  mime: string;
+  prompt?: string;
+  createdAt: number;
+}
+
+interface ResultContextMenuState {
+  image: ResultImage;
+  x: number;
+  y: number;
 }
 
 interface RetryConfig {
@@ -28,6 +46,9 @@ interface ConnectionProfile {
 }
 
 const SETTINGS_KEY = "gugle-ai-settings";
+const RESULT_HISTORY_DB_NAME = "gugle-ai-history";
+const RESULT_HISTORY_STORE_NAME = "images";
+const RESULT_HISTORY_DB_VERSION = 1;
 const DEFAULT_ENDPOINT = "https://api.openai.com/v1";
 const DEFAULT_CONNECTION_ID = "default-openai";
 const DEFAULT_MODEL_OPTIONS = [
@@ -93,11 +114,15 @@ const count = ref(1);
 const prompt = ref("");
 const refImages = ref<RefImage[]>([]);
 const results = ref<ResultImage[]>([]);
+const historyLoading = ref(true);
 const loading = ref(false);
 const stopping = ref(false);
 const error = ref("");
 const fileInput = ref<HTMLInputElement>();
 const dragOver = ref(false);
+const resultContextMenu = ref<ResultContextMenuState | null>(null);
+const resultContextMenuElement = ref<HTMLElement>();
+const previewNotice = ref("");
 
 const logs = ref<string[]>([]);
 const showLogs = ref(false);
@@ -105,6 +130,8 @@ const logFilePath = ref("");
 let generationSequence = 0;
 let generationAbortController: AbortController | null = null;
 let activeGenerationId: number | null = null;
+let resultHistoryDbPromise: Promise<IDBDatabase> | null = null;
+let previewNoticeTimer: number | null = null;
 
 function redactSensitiveText(value: unknown): string {
   let text = String(value ?? "");
@@ -356,6 +383,267 @@ function maskApiKey(value: string): string {
   return `${prefix}••••${key.slice(-4)}`;
 }
 
+function openResultHistoryDb(): Promise<IDBDatabase> {
+  if (resultHistoryDbPromise) return resultHistoryDbPromise;
+  resultHistoryDbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(RESULT_HISTORY_DB_NAME, RESULT_HISTORY_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(RESULT_HISTORY_STORE_NAME)) {
+        db.createObjectStore(RESULT_HISTORY_STORE_NAME, {keyPath: "id"});
+      }
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => {
+        db.close();
+        resultHistoryDbPromise = null;
+      };
+      resolve(db);
+    };
+    request.onerror = () => {
+      resultHistoryDbPromise = null;
+      reject(request.error ?? new Error("无法打开预览历史数据库"));
+    };
+    request.onblocked = () => {
+      resultHistoryDbPromise = null;
+      reject(new Error("预览历史数据库被其他窗口占用"));
+    };
+  });
+  return resultHistoryDbPromise;
+}
+
+function waitForTransaction(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("预览历史事务失败"));
+    transaction.onabort = () => reject(transaction.error ?? new Error("预览历史事务已取消"));
+  });
+}
+
+async function loadStoredResultImages(): Promise<StoredResultImage[]> {
+  const db = await openResultHistoryDb();
+  const transaction = db.transaction(RESULT_HISTORY_STORE_NAME, "readonly");
+  const completed = waitForTransaction(transaction);
+  const request = transaction.objectStore(RESULT_HISTORY_STORE_NAME).getAll();
+  await completed;
+  const records = request.result as StoredResultImage[];
+  return records
+      .filter((item) => item && typeof item.id === "string" && item.blob instanceof Blob)
+      .sort(
+          (a, b) =>
+              (Number.isFinite(a.createdAt) ? a.createdAt : 0) -
+              (Number.isFinite(b.createdAt) ? b.createdAt : 0)
+      );
+}
+
+async function putStoredResultImage(image: StoredResultImage): Promise<void> {
+  const db = await openResultHistoryDb();
+  const transaction = db.transaction(RESULT_HISTORY_STORE_NAME, "readwrite");
+  const completed = waitForTransaction(transaction);
+  transaction.objectStore(RESULT_HISTORY_STORE_NAME).put(image);
+  await completed;
+}
+
+async function deleteStoredResultImage(id: string): Promise<void> {
+  const db = await openResultHistoryDb();
+  const transaction = db.transaction(RESULT_HISTORY_STORE_NAME, "readwrite");
+  const completed = waitForTransaction(transaction);
+  transaction.objectStore(RESULT_HISTORY_STORE_NAME).delete(id);
+  await completed;
+}
+
+async function clearStoredResultImages(): Promise<void> {
+  const db = await openResultHistoryDb();
+  const transaction = db.transaction(RESULT_HISTORY_STORE_NAME, "readwrite");
+  const completed = waitForTransaction(transaction);
+  transaction.objectStore(RESULT_HISTORY_STORE_NAME).clear();
+  await completed;
+}
+
+function reportHistoryError(action: string, errorValue: unknown) {
+  const message = `预览历史${action}失败: ${errorMessage(errorValue)}`;
+  log("ERROR", `${message}；当前会话中的图片不会被丢弃`);
+  if (!error.value) error.value = message;
+}
+
+function normalizeImageMime(mime: string | null | undefined): string {
+  const normalized = mime?.split(";", 1)[0].trim().toLowerCase() ?? "";
+  return normalized.startsWith("image/") ? normalized : "image/png";
+}
+
+function createResultId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `result-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function base64ToBlob(base64: string, mime: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], {type: normalizeImageMime(mime)});
+}
+
+async function addResultImage(
+    blob: Blob,
+    mime: string,
+    promptText: string,
+    generatedResultIds?: Set<string>
+): Promise<ResultImage> {
+  const normalizedMime = normalizeImageMime(mime || blob.type);
+  const normalizedBlob = blob.type === normalizedMime ? blob : blob.slice(0, blob.size, normalizedMime);
+  const image: ResultImage = {
+    id: createResultId(),
+    blob: normalizedBlob,
+    mime: normalizedMime,
+    prompt: promptText,
+    previewUrl: URL.createObjectURL(normalizedBlob),
+    createdAt: Date.now(),
+  };
+  results.value.push(image);
+  generatedResultIds?.add(image.id);
+  try {
+    await putStoredResultImage({
+      id: image.id,
+      blob: image.blob,
+      mime: image.mime,
+      prompt: image.prompt,
+      createdAt: image.createdAt,
+    });
+  } catch (e: unknown) {
+    reportHistoryError("保存", e);
+  }
+  return image;
+}
+
+async function restoreResultHistory() {
+  historyLoading.value = true;
+  try {
+    const records = await loadStoredResultImages();
+    const currentIds = new Set(results.value.map((image) => image.id));
+    const restored = records
+        .filter((record) => !currentIds.has(record.id))
+        .map((record): ResultImage => {
+          const mime = normalizeImageMime(record.mime || record.blob.type);
+          return {
+            id: record.id,
+            blob: record.blob,
+            mime,
+            prompt: typeof record.prompt === "string" ? record.prompt : "",
+            previewUrl: URL.createObjectURL(record.blob),
+            createdAt: Number.isFinite(record.createdAt) ? record.createdAt : 0,
+          };
+        });
+    results.value = [...restored, ...results.value];
+    if (restored.length > 0) log("INFO", `已恢复 ${restored.length} 张预览图片`);
+  } catch (e: unknown) {
+    reportHistoryError("加载", e);
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
+async function deleteResultImage(image: ResultImage) {
+  if (resultContextMenu.value?.image.id === image.id) closeResultContextMenu();
+  try {
+    await deleteStoredResultImage(image.id);
+    const index = results.value.findIndex((item) => item.id === image.id);
+    if (index >= 0) {
+      URL.revokeObjectURL(results.value[index].previewUrl);
+      results.value.splice(index, 1);
+    }
+  } catch (e: unknown) {
+    reportHistoryError("删除", e);
+  }
+}
+
+async function clearResultHistory() {
+  if (historyLoading.value || results.value.length === 0) return;
+  if (!window.confirm(`确定清空全部 ${results.value.length} 张预览图片吗？此操作无法撤销。`)) return;
+  closeResultContextMenu();
+  try {
+    await clearStoredResultImages();
+    for (const image of results.value) URL.revokeObjectURL(image.previewUrl);
+    results.value = [];
+    log("INFO", "已清空预览历史");
+  } catch (e: unknown) {
+    reportHistoryError("清空", e);
+  }
+}
+
+function openResultContextMenu(event: MouseEvent, image: ResultImage) {
+  const menuWidth = 176;
+  const menuHeight = 126;
+  const viewportPadding = 8;
+  resultContextMenu.value = {
+    image,
+    x: Math.max(viewportPadding, Math.min(event.clientX, window.innerWidth - menuWidth - viewportPadding)),
+    y: Math.max(viewportPadding, Math.min(event.clientY, window.innerHeight - menuHeight - viewportPadding)),
+  };
+}
+
+function closeResultContextMenu() {
+  resultContextMenu.value = null;
+}
+
+function showPreviewNotice(message: string) {
+  previewNotice.value = message;
+  if (previewNoticeTimer !== null) window.clearTimeout(previewNoticeTimer);
+  previewNoticeTimer = window.setTimeout(() => {
+    previewNotice.value = "";
+    previewNoticeTimer = null;
+  }, 2000);
+}
+
+function copyTextFallback(value: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    return document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function copyResultPrompt(image: ResultImage) {
+  closeResultContextMenu();
+  if (!image.prompt) {
+    error.value = "这张图片由旧版本生成，没有保存可复制的提示词";
+    return;
+  }
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(image.prompt);
+    copied = true;
+  } catch {
+    try {
+      copied = copyTextFallback(image.prompt);
+    } catch {
+    }
+  }
+  if (!copied) {
+    error.value = "复制提示词失败，请检查系统剪贴板权限";
+    return;
+  }
+  showPreviewNotice("提示词已复制");
+  log("INFO", "已复制预览图片的提示词");
+}
+
+async function saveResultFromContextMenu(image: ResultImage) {
+  closeResultContextMenu();
+  await saveImage(image);
+}
+
+async function deleteResultFromContextMenu(image: ResultImage) {
+  closeResultContextMenu();
+  await deleteResultImage(image);
+}
+
 function createConnectionId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `connection-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -525,6 +813,11 @@ function closePickerMenus(e: PointerEvent) {
   if (!retryStatusCodePicker.value?.contains(target)) {
     retryStatusCodeMenuOpen.value = false;
   }
+  if (!resultContextMenuElement.value?.contains(target)) closeResultContextMenu();
+}
+
+function closeResultContextMenuOnEscape(e: KeyboardEvent) {
+  if (e.key === "Escape") closeResultContextMenu();
 }
 
 onMounted(async () => {
@@ -574,14 +867,25 @@ onMounted(async () => {
     }
   }
   window.addEventListener("paste", onPaste);
+  window.addEventListener("blur", closeResultContextMenu);
+  window.addEventListener("resize", closeResultContextMenu);
+  window.addEventListener("scroll", closeResultContextMenu, true);
   document.addEventListener("pointerdown", closePickerMenus);
+  document.addEventListener("keydown", closeResultContextMenuOnEscape);
+  await restoreResultHistory();
   if (autoCheckUpdate.value) checkUpdate(false);
 });
 
 onUnmounted(() => {
   generationAbortController?.abort();
+  for (const image of results.value) URL.revokeObjectURL(image.previewUrl);
+  if (previewNoticeTimer !== null) window.clearTimeout(previewNoticeTimer);
   window.removeEventListener("paste", onPaste);
+  window.removeEventListener("blur", closeResultContextMenu);
+  window.removeEventListener("resize", closeResultContextMenu);
+  window.removeEventListener("scroll", closeResultContextMenu, true);
   document.removeEventListener("pointerdown", closePickerMenus);
+  document.removeEventListener("keydown", closeResultContextMenuOnEscape);
 });
 
 watch(
@@ -714,18 +1018,19 @@ function stopGeneration() {
 
 async function generate() {
   if (loading.value) return;
-  if (!prompt.value.trim()) {
+  const generationPrompt = prompt.value;
+  if (!generationPrompt.trim()) {
     error.value = "请输入提示词";
     return;
   }
   const generationId = ++generationSequence;
   const abortController = new AbortController();
+  const generatedResultIds = new Set<string>();
   generationAbortController = abortController;
   activeGenerationId = generationId;
   loading.value = true;
   stopping.value = false;
   error.value = "";
-  results.value = [];
 
   // 允许填裸域名(如 https://ai.example.cn),没有版本路径时自动补 /v1
   let base = endpoint.value.trim().replace(/\/+$/, "");
@@ -743,15 +1048,31 @@ async function generate() {
         `任务=#${generationId} 开始生成: 端点=${sanitizeUrlForLog(base)} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
     );
     if (useChat) {
-      await generateViaChat(base, headers, retryConfig, generationId, abortController.signal);
+      await generateViaChat(
+          base,
+          headers,
+          retryConfig,
+          generationId,
+          abortController.signal,
+          generatedResultIds,
+          generationPrompt
+      );
     } else {
-      await generateViaImages(base, headers, retryConfig, generationId, abortController.signal);
+      await generateViaImages(
+          base,
+          headers,
+          retryConfig,
+          generationId,
+          abortController.signal,
+          generatedResultIds,
+          generationPrompt
+      );
     }
     throwIfGenerationAborted(abortController.signal);
-    if (results.value.length === 0) {
+    if (generatedResultIds.size === 0) {
       throw new Error("响应中没有图片数据");
     }
-    log("INFO", `任务=#${generationId} 生成成功: ${results.value.length} 张图片`);
+    log("INFO", `任务=#${generationId} 生成成功: ${generatedResultIds.size} 张图片`);
   } catch (e: unknown) {
     if (abortController.signal.aborted) {
       error.value = "";
@@ -856,14 +1177,16 @@ async function generateViaImages(
     headers: Record<string, string>,
     retryConfig: RetryConfig | null,
     generationId: number,
-    signal: AbortSignal
+    signal: AbortSignal,
+    generatedResultIds: Set<string>,
+    generationPrompt: string
 ) {
   throwIfGenerationAborted(signal);
   let resp: Response;
   if (refImages.value.length > 0) {
     const form = new FormData();
     form.append("model", model.value);
-    form.append("prompt", prompt.value);
+    form.append("prompt", generationPrompt);
     form.append("n", String(count.value));
     if (size.value !== "auto") form.append("size", size.value);
     for (const img of refImages.value) {
@@ -884,7 +1207,7 @@ async function generateViaImages(
           headers: {...headers, "Content-Type": "application/json"},
           body: JSON.stringify({
             model: model.value,
-            prompt: prompt.value,
+            prompt: generationPrompt,
             n: count.value,
             ...(size.value !== "auto" ? {size: size.value} : {}),
           }),
@@ -900,9 +1223,14 @@ async function generateViaImages(
   for (const item of data.data ?? []) {
     throwIfGenerationAborted(signal);
     if (item.b64_json) {
-      results.value.push({base64: item.b64_json, mime: "image/png"});
+      await addResultImage(
+          base64ToBlob(item.b64_json, "image/png"),
+          "image/png",
+          generationPrompt,
+          generatedResultIds
+      );
     } else if (item.url) {
-      await downloadResult(base, item.url, signal);
+      await downloadResult(base, item.url, signal, generatedResultIds, generationPrompt);
     }
   }
 }
@@ -914,9 +1242,11 @@ async function generateViaChat(
     headers: Record<string, string>,
     retryConfig: RetryConfig | null,
     generationId: number,
-    signal: AbortSignal
+    signal: AbortSignal,
+    generatedResultIds: Set<string>,
+    generationPrompt: string
 ) {
-  const content: any[] = [{type: "text", text: prompt.value}];
+  const content: any[] = [{type: "text", text: generationPrompt}];
   for (const img of refImages.value) {
     throwIfGenerationAborted(signal);
     const buf = await img.file.arrayBuffer();
@@ -946,37 +1276,55 @@ async function generateViaChat(
   throwIfGenerationAborted(signal);
   for (const choice of data.choices ?? []) {
     throwIfGenerationAborted(signal);
+    const choiceResultCount = generatedResultIds.size;
     const msg = choice.message ?? {};
     // 部分服务把图放在 message.images 数组里
     for (const img of msg.images ?? []) {
       const url = img?.image_url?.url ?? img?.url;
-      if (url) await collectChatImage(base, url, signal);
+      if (url) await collectChatImage(base, url, signal, generatedResultIds, generationPrompt);
     }
     const text: string = typeof msg.content === "string" ? msg.content : "";
     for (const m of text.matchAll(/data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)/g)) {
       throwIfGenerationAborted(signal);
-      results.value.push({base64: m[2], mime: m[1]});
+      await addResultImage(base64ToBlob(m[2], m[1]), m[1], generationPrompt, generatedResultIds);
     }
     // 内容里没有内嵌 base64 时,再找 markdown 图片链接
-    if (results.value.length === 0) {
+    if (generatedResultIds.size === choiceResultCount) {
       for (const m of text.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g)) {
-        await collectChatImage(base, m[1], signal);
+        await collectChatImage(base, m[1], signal, generatedResultIds, generationPrompt);
       }
     }
   }
 }
 
-async function collectChatImage(base: string, url: string, signal: AbortSignal) {
+async function collectChatImage(
+    base: string,
+    url: string,
+    signal: AbortSignal,
+    generatedResultIds: Set<string>,
+    generationPrompt: string
+) {
   throwIfGenerationAborted(signal);
   const dataUrl = url.match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/);
   if (dataUrl) {
-    results.value.push({base64: dataUrl[2], mime: dataUrl[1]});
+    await addResultImage(
+        base64ToBlob(dataUrl[2], dataUrl[1]),
+        dataUrl[1],
+        generationPrompt,
+        generatedResultIds
+    );
   } else {
-    await downloadResult(base, url, signal);
+    await downloadResult(base, url, signal, generatedResultIds, generationPrompt);
   }
 }
 
-async function downloadResult(base: string, url: string, signal: AbortSignal) {
+async function downloadResult(
+    base: string,
+    url: string,
+    signal: AbortSignal,
+    generatedResultIds: Set<string>,
+    generationPrompt: string
+) {
   throwIfGenerationAborted(signal);
   // 相对路径先拼完整端点,404 再回退到域名根(不同中转的挂载位置不一样)
   const candidates: string[] = [];
@@ -999,10 +1347,8 @@ async function downloadResult(base: string, url: string, signal: AbortSignal) {
     if (imgResp.ok) {
       const buf = await imgResp.arrayBuffer();
       throwIfGenerationAborted(signal);
-      results.value.push({
-        base64: bufToBase64(buf),
-        mime: imgResp.headers.get("content-type") ?? "image/png",
-      });
+      const mime = normalizeImageMime(imgResp.headers.get("content-type"));
+      await addResultImage(new Blob([buf], {type: mime}), mime, generationPrompt, generatedResultIds);
       return;
     }
     lastStatus = imgResp.status;
@@ -1051,7 +1397,8 @@ async function saveImage(img: ResultImage) {
   });
   if (!path) return;
   try {
-    await invoke("save_file", {path, base64Data: img.base64});
+    const buffer = await img.blob.arrayBuffer();
+    await invoke("save_file", {path, base64Data: bufToBase64(buffer)});
   } catch (e: any) {
     error.value = `保存失败: ${e?.message ?? e}`;
   }
@@ -1400,14 +1747,72 @@ async function saveImage(img: ResultImage) {
         <pre class="log-body">{{ logs.length ? logs.join("\n") : "暂无日志" }}</pre>
       </div>
 
-      <div v-if="results.length" class="results">
-        <div v-for="(img, i) in results" :key="i" class="result-card">
-          <img :src="`data:${img.mime};base64,${img.base64}`" alt="生成结果"/>
-          <button @click="saveImage(img)">保存</button>
+      <section class="preview-panel" aria-label="预览区域">
+        <div class="preview-toolbar">
+          <span>{{ historyLoading ? "正在加载预览..." : `预览图片 ${results.length} 张` }}</span>
+          <span v-if="loading" class="preview-status">{{ stopping ? "正在停止..." : "正在生成..." }}</span>
+          <span v-if="previewNotice" class="preview-notice" role="status">{{ previewNotice }}</span>
+          <button
+              type="button"
+              class="clear-results"
+              :disabled="historyLoading || results.length === 0"
+              @click="clearResultHistory"
+          >
+            清空预览
+          </button>
         </div>
+        <div v-if="results.length" class="results">
+          <div v-for="img in results" :key="img.id" class="result-card">
+            <img
+                :src="img.previewUrl"
+                alt="生成结果"
+                @contextmenu.prevent="openResultContextMenu($event, img)"
+            />
+            <div class="result-actions">
+              <button type="button" @click="saveImage(img)">保存</button>
+              <button type="button" class="delete-result" @click="deleteResultImage(img)">删除</button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="placeholder">
+          {{ historyLoading ? "正在加载预览..." : loading ? "正在生成,请稍候..." : "生成的图片将显示在这里" }}
+        </div>
+      </section>
+
+      <div
+          v-if="resultContextMenu"
+          ref="resultContextMenuElement"
+          class="result-context-menu"
+          role="menu"
+          :style="{ left: `${resultContextMenu.x}px`, top: `${resultContextMenu.y}px` }"
+          @pointerdown.stop
+          @contextmenu.prevent
+      >
+        <button
+            type="button"
+            role="menuitem"
+            :disabled="!resultContextMenu.image.prompt"
+            :title="resultContextMenu.image.prompt ? '' : '旧版本预览未保存提示词'"
+            @click="copyResultPrompt(resultContextMenu.image)"
+        >
+          复制提示词
+        </button>
+        <button
+            type="button"
+            role="menuitem"
+            @click="saveResultFromContextMenu(resultContextMenu.image)"
+        >
+          保存图片
+        </button>
+        <button
+            type="button"
+            class="context-delete"
+            role="menuitem"
+            @click="deleteResultFromContextMenu(resultContextMenu.image)"
+        >
+          删除图片
+        </button>
       </div>
-      <div v-else-if="!loading" class="placeholder">生成的图片将显示在这里</div>
-      <div v-if="loading" class="placeholder">正在生成,请稍候...</div>
     </section>
 
     <div v-if="connectionModalOpen" class="modal-backdrop" @mousedown.self="closeConnectionModal">
@@ -2208,9 +2613,56 @@ textarea {
   word-break: break-all;
 }
 
+.preview-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-toolbar {
+  display: flex;
+  min-height: 32px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+.preview-status {
+  color: #818cf8;
+}
+
+.preview-notice {
+  color: #86efac;
+}
+
+.clear-results {
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #27272a;
+  color: #d4d4d8;
+  font: inherit;
+  cursor: pointer;
+}
+
+.clear-results:hover:not(:disabled) {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.clear-results:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .results {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -2222,11 +2674,21 @@ textarea {
 
 .result-card img {
   width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
   border-radius: 8px;
   border: 1px solid #3f3f46;
+  background: #111113;
+  cursor: context-menu;
 }
 
-.result-card button {
+.result-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.result-actions button {
+  flex: 1;
   font: inherit;
   padding: 6px;
   border: 1px solid #3f3f46;
@@ -2236,8 +2698,57 @@ textarea {
   cursor: pointer;
 }
 
-.result-card button:hover {
+.result-actions button:hover {
   border-color: #6366f1;
+}
+
+.result-actions .delete-result:hover {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.result-context-menu {
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  width: 168px;
+  max-width: calc(100vw - 16px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #52525b;
+  border-radius: 6px;
+  background: #27272a;
+  box-shadow: 0 10px 28px #0009;
+}
+
+.result-context-menu button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid #3f3f46;
+  background: transparent;
+  color: #e4e4e7;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.result-context-menu button:last-child {
+  border-bottom: 0;
+}
+
+.result-context-menu button:hover:not(:disabled) {
+  background: #3f3f46;
+}
+
+.result-context-menu button:disabled {
+  color: #71717a;
+  cursor: default;
+}
+
+.result-context-menu .context-delete:hover {
+  background: #7f1d1d99;
+  color: #fecaca;
 }
 
 .placeholder {
