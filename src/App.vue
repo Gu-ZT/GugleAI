@@ -4086,9 +4086,17 @@ textarea {
   color: #d4d4d8;
 }
 
-.workspace-toolbar .arco-btn-secondary:hover {
+.workspace-toolbar .arco-btn-secondary:hover:not(.arco-btn-disabled) {
   border-color: #71717a;
   color: #fff;
+}
+
+.workspace-toolbar .arco-btn-secondary.arco-btn-disabled,
+.workspace-toolbar .arco-btn-secondary[type="button"].arco-btn-disabled {
+  border-color: #3f3f46;
+  background: #27272a;
+  color: #71717a;
+  opacity: 0.7;
 }
 
 .workspace-toolbar {
