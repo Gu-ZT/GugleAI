@@ -167,7 +167,6 @@ const canvasBusyCount = ref(0);
 const canvasControllers = new Map<string, AbortController>();
 
 const logs = ref<string[]>([]);
-const showLogs = ref(false);
 const logFilePath = ref("");
 let generationSequence = 0;
 let generationAbortController: AbortController | null = null;
@@ -2043,7 +2042,6 @@ const viewModel = reactive({
   checkingUpdate,
   updateStatus,
   updateUrl,
-  showLogs,
   logs,
   logFilePath,
   prompt,
@@ -2680,17 +2678,84 @@ textarea:focus {
   padding-bottom: 10px;
 }
 
-.settings-page-body {
+.settings-layout {
   display: grid;
-  width: min(760px, 100%);
+  flex: 1;
   min-height: 0;
+  grid-template-columns: 156px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.settings-subnav {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 12px;
+  border-right: 1px solid #2e2e33;
+}
+
+.settings-subnav-link {
+  display: flex;
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  color: #a1a1aa;
+  text-decoration: none;
+}
+
+.settings-subnav-link svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+}
+
+.settings-subnav-link span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-subnav-link:hover {
+  background: #323237;
+  color: #f4f4f5;
+}
+
+.settings-subnav-link.router-link-active {
+  background: #3730a355;
+  color: #c7d2fe;
+}
+
+.settings-subpage {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.settings-section {
+  width: min(760px, 100%);
+}
+
+.settings-section h2 {
+  margin: 0 0 14px;
+  color: #f4f4f5;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.settings-form-grid {
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
   gap: 12px;
-  padding-bottom: 16px;
 }
 
-.settings-page-body h3 {
+.settings-form-grid h3 {
   grid-column: 1 / -1;
   margin: 6px 0 0;
   padding-bottom: 6px;
@@ -2700,9 +2765,37 @@ textarea:focus {
   letter-spacing: 0;
 }
 
-.settings-log-panel {
+.settings-form-wide {
   grid-column: 1 / -1;
-  max-height: 260px;
+}
+
+.settings-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-section-heading h2 {
+  margin: 0;
+}
+
+.settings-log-section {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.settings-log-panel {
+  flex: 1;
+  min-height: 240px;
+  max-height: none;
+}
+
+.settings-log-path {
+  padding: 0 0 8px;
 }
 
 .connection-modal {
@@ -3798,7 +3891,12 @@ textarea {
     max-width: calc(100vw - 112px);
   }
 
-  .settings-page-body {
+  .settings-layout {
+    grid-template-columns: 128px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .settings-form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

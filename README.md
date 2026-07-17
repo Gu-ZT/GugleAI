@@ -8,6 +8,7 @@
 
 - **多工作区**:左侧窄导航栏可在图像生成、文字聊天和无尽画布之间切换,三个工作区由独立 Vue Router 页面承载
 - **自定义连接**:原侧栏配置集中到独立设置页面;API 端点和 API Key 成对保存为连接配置,可从同一个下拉菜单切换,并通过独立弹出层添加或编辑每个连接的可用模型列表;Key 仅显示脱敏摘要;端点不带 `/v1` 时自动补全
+- **分类设置**:设置页面使用独立侧边栏和子路由,分为模型设置、通用设置和日志;连接与默认模型、自动更新、运行日志分别管理
 - **文字聊天**:通过 `/chat/completions` 进行连续文字对话,文字模型可直接输入并保存为选项,复用当前 API 连接和系统代理
 - **无尽画布**:支持无限平移和缩放,每个节点可独立选择 API 连接和该连接的模型;文字生成会创建并连接新的文字子节点;上传或生成的图片节点只作为参考图输入,连接到新的空图像节点后可一次生成多张图片子节点
 - **粘贴导入配置**:直接 Ctrl+V 粘贴连接配置自动添加并切换到对应连接,支持 newapi 渠道 JSON(`{"_type":"newapi_channel_conn",...}`)和 Codex CLI `config.toml`(提取 `base_url`)
@@ -29,7 +30,7 @@
 
 依赖:[Node.js 20.19+](https://nodejs.org/)、[pnpm](https://pnpm.io/)、[Rust](https://www.rust-lang.org/)。
 
-前端使用 Vue Router Hash History 管理 `/image`、`/chat`、`/canvas` 和 `/settings` 页面,页面组件位于 `src/views/`。连接编辑和预览交互弹层位于 `src/components/modals/`。Arco Design 组件通过 `unplugin-vue-components` 按需解析;公共逻辑分别位于 `src/api/index.ts`、`src/chat/index.ts`、`src/canvas/index.ts` 和 `src/router/index.ts`,其中 API 连接、聊天会话和画布图结构使用类封装。实际网络请求仍统一经过 `src/App.vue` 的 Tauri HTTP `fetch` 封装。
+前端使用 Vue Router Hash History 管理 `/image`、`/chat`、`/canvas` 和 `/settings` 页面,设置页进一步使用 `/settings/models`、`/settings/general`、`/settings/logs` 子路由。页面组件位于 `src/views/`,设置子页面位于 `src/views/settings/`。连接编辑和预览交互弹层位于 `src/components/modals/`。Arco Design 组件通过 `unplugin-vue-components` 按需解析;公共逻辑分别位于 `src/api/index.ts`、`src/chat/index.ts`、`src/canvas/index.ts` 和 `src/router/index.ts`,其中 API 连接、聊天会话和画布图结构使用类封装。实际网络请求仍统一经过 `src/App.vue` 的 Tauri HTTP `fetch` 封装。
 
 ```bash
 # 安装依赖
@@ -44,7 +45,7 @@ pnpm tauri build
 
 ## 使用
 
-1. 使用左侧图标切换「生图」「聊天」或「无尽画布」;点击左下角设置按钮进入设置页面,配置端点、Key 和可用模型
+1. 使用左侧图标切换「生图」「聊天」或「无尽画布」;点击左下角设置按钮后,通过二级侧栏进入模型设置、通用设置或日志
 2. 生图页面可输入提示词、添加参考图,并单独配置接口模式、尺寸、数量和请求重试;聊天页面可进行连续文字对话
 3. 无尽画布中每个节点独立选择连接和模型;文字节点生成后会新增文字子节点;含图片的节点仅作参考输入,需连接到新的空图像节点进行生成
 4. 图像预览会持续保留,双击图片可放大,右键可复制图片或提示词、设为参考图、保存或删除,也可清空全部预览

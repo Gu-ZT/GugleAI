@@ -3,6 +3,9 @@ import ImageView from "../views/ImageView.vue";
 import ChatView from "../views/ChatView.vue";
 import CanvasView from "../views/CanvasView.vue";
 import SettingsView from "../views/SettingsView.vue";
+import ModelSettingsView from "../views/settings/ModelSettingsView.vue";
+import GeneralSettingsView from "../views/settings/GeneralSettingsView.vue";
+import LogSettingsView from "../views/settings/LogSettingsView.vue";
 
 export type WorkspaceMode = "image" | "chat" | "canvas" | "settings";
 
@@ -13,7 +16,17 @@ const routes: RouteRecordRaw[] = [
   {path: "/image", name: "image", component: ImageView},
   {path: "/chat", name: "chat", component: ChatView},
   {path: "/canvas", name: "canvas", component: CanvasView},
-  {path: "/settings", name: "settings", component: SettingsView},
+  {
+    path: "/settings",
+    name: "settings",
+    component: SettingsView,
+    children: [
+      {path: "", redirect: {name: "settings-models"}},
+      {path: "models", name: "settings-models", component: ModelSettingsView},
+      {path: "general", name: "settings-general", component: GeneralSettingsView},
+      {path: "logs", name: "settings-logs", component: LogSettingsView},
+    ],
+  },
   {path: "/:pathMatch(.*)*", redirect: "/image"},
 ];
 
@@ -28,7 +41,8 @@ router.afterEach((to) => {
 });
 
 export function workspaceModeFromRoute(name: unknown): WorkspaceMode {
-  return name === "chat" || name === "canvas" || name === "settings" ? name : "image";
+  if (typeof name === "string" && name.startsWith("settings")) return "settings";
+  return name === "chat" || name === "canvas" ? name : "image";
 }
 
 export function restoreWorkspaceMode(): WorkspaceMode {
