@@ -1,8 +1,8 @@
 [package]
 name = "gugle-ai"
 version = "1.0.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "A AI Chat and Image Generator APP made by Gugle"
+authors = ["Gugle"]
 license = "LGPL-3.0-only"
 edition = "2021"
 
