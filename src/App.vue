@@ -5,6 +5,18 @@ import {save} from "@tauri-apps/plugin-dialog";
 import {invoke} from "@tauri-apps/api/core";
 import {openUrl} from "@tauri-apps/plugin-opener";
 import {getVersion} from "@tauri-apps/api/app";
+import {useRoute, useRouter} from "vue-router";
+import {
+  Handle,
+  Position,
+  VueFlow,
+} from "@vue-flow/core";
+import "@vue-flow/core/dist/style.css";
+import "@vue-flow/core/dist/theme-default.css";
+import {OpenAIConnection} from "./api";
+import {CanvasGraph, type CanvasImageAsset, type CanvasNode, type CanvasNodeData} from "./canvas";
+import {ChatSession} from "./chat";
+import {workspaceModeFromRoute, type WorkspaceMode} from "./router";
 
 interface RefImage {
   file: File;
@@ -43,7 +55,9 @@ interface ConnectionProfile {
   id: string;
   endpoint: string;
   apiKey: string;
+  models: string[];
 }
+
 
 const SETTINGS_KEY = "gugle-ai-settings";
 const RESULT_HISTORY_DB_NAME = "gugle-ai-history";
@@ -58,6 +72,16 @@ const DEFAULT_MODEL_OPTIONS = [
   "grok-imagine-image",
   "grok-imagine-image-quality"
 ];
+const DEFAULT_TEXT_MODEL_OPTIONS = [
+  "gpt-4o-mini",
+  "gpt-4.1-mini",
+  "deepseek-chat",
+  "claude-3-5-sonnet"
+];
+const DEFAULT_CONNECTION_MODELS = [...new Set([
+  ...DEFAULT_MODEL_OPTIONS,
+  ...DEFAULT_TEXT_MODEL_OPTIONS,
+])];
 const DEFAULT_RETRY_STATUS_CODE_OPTIONS = [408, 409, 429, 500, 502, 503, 504, 524];
 
 // 插件底层的 reqwest 不读 Windows 系统代理;每次请求前都取一次,
@@ -84,20 +108,28 @@ async function fetch(input: string, init?: RequestInit & ClientOptions): Promise
 const endpoint = ref(DEFAULT_ENDPOINT);
 const apiKey = ref("");
 const connectionProfiles = ref<ConnectionProfile[]>([
-  {id: DEFAULT_CONNECTION_ID, endpoint: DEFAULT_ENDPOINT, apiKey: ""},
+  {id: DEFAULT_CONNECTION_ID, endpoint: DEFAULT_ENDPOINT, apiKey: "", models: [...DEFAULT_CONNECTION_MODELS]},
 ]);
 const activeConnectionId = ref(DEFAULT_CONNECTION_ID);
 const connectionMenuOpen = ref(false);
 const connectionPicker = ref<HTMLElement>();
 const connectionModalOpen = ref(false);
+const connectionDraftId = ref("");
 const connectionDraftEndpoint = ref("");
 const connectionDraftApiKey = ref("");
+const connectionDraftModels = ref<string[]>([]);
+const connectionDraftModelInput = ref("");
 const connectionDraftError = ref("");
 const model = ref("gpt-image-2");
 const modelOptions = ref([...DEFAULT_MODEL_OPTIONS]);
 const modelMenuOpen = ref(false);
 const modelShowAll = ref(true);
 const modelPicker = ref<HTMLElement>();
+const route = useRoute();
+const workspaceRouter = useRouter();
+const appMode = computed(() => workspaceModeFromRoute(route.name));
+const textModel = ref("gpt-4o-mini");
+const textModelOptions = ref([...DEFAULT_TEXT_MODEL_OPTIONS]);
 // auto: 多参考图自动改走 chat 接口(部分中转的 edits 接口只支持单图)
 const apiMode = ref<"auto" | "images" | "chat">("auto");
 const retryEnabled = ref(false);
@@ -124,6 +156,19 @@ const resultContextMenu = ref<ResultContextMenuState | null>(null);
 const resultContextMenuElement = ref<HTMLElement>();
 const enlargedResult = ref<ResultImage | null>(null);
 const previewNotice = ref("");
+
+const chatSession = new ChatSession();
+const chatMessages = chatSession.messages;
+const chatDraft = chatSession.draft;
+const chatLoading = chatSession.loading;
+const chatStopping = chatSession.stopping;
+const chatError = chatSession.error;
+
+const canvasGraph = new CanvasGraph();
+const canvasNodes = canvasGraph.nodes;
+const canvasEdges = canvasGraph.edges;
+const canvasBusyCount = ref(0);
+const canvasControllers = new Map<string, AbortController>();
 
 const logs = ref<string[]>([]);
 const showLogs = ref(false);
@@ -717,7 +762,17 @@ function createConnectionId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `connection-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function normalizeConnectionProfiles(value: unknown): ConnectionProfile[] {
+function normalizeConnectionModels(value: unknown, fallback = DEFAULT_CONNECTION_MODELS): string[] {
+  const models = Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+  return [...new Set((models.length > 0 ? models : fallback).map((item) => item.trim()))];
+}
+
+function normalizeConnectionProfiles(
+    value: unknown,
+    fallbackModels = DEFAULT_CONNECTION_MODELS
+): ConnectionProfile[] {
   if (!Array.isArray(value)) return [];
   const profiles: ConnectionProfile[] = [];
   const usedIds = new Set<string>();
@@ -732,7 +787,12 @@ function normalizeConnectionProfiles(value: unknown): ConnectionProfile[] {
     if (usedPairs.has(pair)) continue;
     let id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : createConnectionId();
     if (usedIds.has(id)) id = createConnectionId();
-    profiles.push({id, endpoint: profileEndpoint, apiKey: profileApiKey});
+    profiles.push({
+      id,
+      endpoint: profileEndpoint,
+      apiKey: profileApiKey,
+      models: normalizeConnectionModels(record.models, fallbackModels),
+    });
     usedIds.add(id);
     usedPairs.add(pair);
   }
@@ -750,7 +810,11 @@ function selectConnection(profile: ConnectionProfile) {
   connectionMenuOpen.value = false;
 }
 
-function addAndSelectConnection(endpointValue: string, apiKeyValue: string) {
+function addAndSelectConnection(
+    endpointValue: string,
+    apiKeyValue: string,
+    modelsValue: string[] = DEFAULT_CONNECTION_MODELS
+) {
   const profileEndpoint = endpointValue.trim();
   const profileApiKey = apiKeyValue.trim();
   if (!profileEndpoint) return false;
@@ -765,15 +829,19 @@ function addAndSelectConnection(endpointValue: string, apiKeyValue: string) {
     id: createConnectionId(),
     endpoint: profileEndpoint,
     apiKey: profileApiKey,
+    models: normalizeConnectionModels(modelsValue),
   };
   connectionProfiles.value = [...connectionProfiles.value, profile];
   selectConnection(profile);
   return true;
 }
 
-function openConnectionModal() {
-  connectionDraftEndpoint.value = "";
-  connectionDraftApiKey.value = "";
+function openConnectionModal(profile?: ConnectionProfile) {
+  connectionDraftId.value = profile?.id ?? "";
+  connectionDraftEndpoint.value = profile?.endpoint ?? "";
+  connectionDraftApiKey.value = profile?.apiKey ?? "";
+  connectionDraftModels.value = [...(profile?.models ?? DEFAULT_CONNECTION_MODELS)];
+  connectionDraftModelInput.value = "";
   connectionDraftError.value = "";
   connectionMenuOpen.value = false;
   connectionModalOpen.value = true;
@@ -781,9 +849,26 @@ function openConnectionModal() {
 
 function closeConnectionModal() {
   connectionModalOpen.value = false;
+  connectionDraftId.value = "";
   connectionDraftEndpoint.value = "";
   connectionDraftApiKey.value = "";
+  connectionDraftModels.value = [];
+  connectionDraftModelInput.value = "";
   connectionDraftError.value = "";
+}
+
+function addConnectionDraftModel() {
+  const draft = connectionDraftModelInput.value.trim();
+  if (!draft) return;
+  if (!connectionDraftModels.value.includes(draft)) {
+    connectionDraftModels.value = [...connectionDraftModels.value, draft];
+  }
+  connectionDraftModelInput.value = "";
+  connectionDraftError.value = "";
+}
+
+function removeConnectionDraftModel(modelName: string) {
+  connectionDraftModels.value = connectionDraftModels.value.filter((item) => item !== modelName);
 }
 
 function saveConnectionDraft() {
@@ -791,7 +876,39 @@ function saveConnectionDraft() {
     connectionDraftError.value = "请输入 API 端点";
     return;
   }
-  addAndSelectConnection(connectionDraftEndpoint.value, connectionDraftApiKey.value);
+  addConnectionDraftModel();
+  if (connectionDraftModels.value.length === 0) {
+    connectionDraftError.value = "请至少添加一个可用模型";
+    return;
+  }
+  const profileEndpoint = connectionDraftEndpoint.value.trim();
+  const profileApiKey = connectionDraftApiKey.value.trim();
+  const duplicate = connectionProfiles.value.find(
+      (profile) => profile.id !== connectionDraftId.value &&
+          profile.endpoint === profileEndpoint && profile.apiKey === profileApiKey
+  );
+  if (duplicate) {
+    connectionDraftError.value = "相同端点和 API Key 的连接已存在";
+    return;
+  }
+  if (connectionDraftId.value) {
+    const updated: ConnectionProfile = {
+      id: connectionDraftId.value,
+      endpoint: profileEndpoint,
+      apiKey: profileApiKey,
+      models: [...connectionDraftModels.value],
+    };
+    connectionProfiles.value = connectionProfiles.value.map(
+        (profile) => profile.id === updated.id ? updated : profile
+    );
+    if (activeConnectionId.value === updated.id) selectConnection(updated);
+    for (const node of canvasNodes.value) {
+      if (node.data.connectionId !== updated.id || updated.models.includes(node.data.model)) continue;
+      updateCanvasNodeData(node.id, {model: updated.models[0]});
+    }
+  } else {
+    addAndSelectConnection(profileEndpoint, profileApiKey, connectionDraftModels.value);
+  }
   closeConnectionModal();
 }
 
@@ -800,6 +917,13 @@ function removeConnection(profile: ConnectionProfile) {
   const remaining = connectionProfiles.value.filter((item) => item.id !== profile.id);
   connectionProfiles.value = remaining;
   if (activeConnectionId.value === profile.id) selectConnection(remaining[0]);
+  for (const node of canvasNodes.value) {
+    if (node.data.connectionId !== profile.id) continue;
+    updateCanvasNodeData(node.id, {
+      connectionId: remaining[0].id,
+      model: remaining[0].models[0] ?? "",
+    });
+  }
 }
 
 function normalizeModelOptions(value: unknown): string[] {
@@ -885,6 +1009,22 @@ function closePickerMenus(e: PointerEvent) {
   if (!resultContextMenuElement.value?.contains(target)) closeResultContextMenu();
 }
 
+function normalizeTextModelOptions(value: unknown): string[] {
+  const saved = Array.isArray(value)
+      ? value.filter((option): option is string => typeof option === "string" && option.trim().length > 0)
+      : [];
+  return [...new Set([...DEFAULT_TEXT_MODEL_OPTIONS, ...saved.map((option) => option.trim())])];
+}
+
+function addTextModelOption() {
+  const value = textModel.value.trim();
+  if (!value) return;
+  textModel.value = value;
+  if (!textModelOptions.value.includes(value)) {
+    textModelOptions.value = [...textModelOptions.value, value];
+  }
+}
+
 function closeResultOverlaysOnEscape(e: KeyboardEvent) {
   if (e.key !== "Escape") return;
   closeResultContextMenu();
@@ -900,12 +1040,22 @@ onMounted(async () => {
           ? s.endpoint.trim()
           : DEFAULT_ENDPOINT;
       const savedApiKey = typeof s.apiKey === "string" ? s.apiKey.trim() : "";
-      const restoredProfiles = normalizeConnectionProfiles(s.connectionProfiles);
+      const fallbackConnectionModels = normalizeConnectionModels([
+        ...(Array.isArray(s.modelOptions) ? s.modelOptions : []),
+        ...(Array.isArray(s.textModelOptions) ? s.textModelOptions : []),
+        ...(typeof s.model === "string" ? [s.model] : []),
+        ...(typeof s.textModel === "string" ? [s.textModel] : []),
+      ]);
+      const restoredProfiles = normalizeConnectionProfiles(
+          s.connectionProfiles,
+          fallbackConnectionModels
+      );
       if (restoredProfiles.length === 0) {
         restoredProfiles.push({
           id: savedEndpoint === DEFAULT_ENDPOINT && !savedApiKey ? DEFAULT_CONNECTION_ID : createConnectionId(),
           endpoint: savedEndpoint,
           apiKey: savedApiKey,
+          models: fallbackConnectionModels,
         });
       }
       connectionProfiles.value = restoredProfiles;
@@ -934,6 +1084,11 @@ onMounted(async () => {
       ].sort((a, b) => a - b);
       retryCount.value = s.retryCount ?? 5;
       autoCheckUpdate.value = s.autoCheckUpdate ?? true;
+      textModel.value = typeof s.textModel === "string" && s.textModel.trim() ? s.textModel.trim() : textModel.value;
+      textModelOptions.value = normalizeTextModelOptions(s.textModelOptions);
+      if (textModel.value && !textModelOptions.value.includes(textModel.value)) {
+        textModelOptions.value = [...textModelOptions.value, textModel.value];
+      }
     } catch {
     }
   }
@@ -944,11 +1099,15 @@ onMounted(async () => {
   document.addEventListener("pointerdown", closePickerMenus);
   document.addEventListener("keydown", closeResultOverlaysOnEscape);
   await restoreResultHistory();
+  if (appMode.value === "canvas") seedCanvas();
   if (autoCheckUpdate.value) checkUpdate(false);
 });
 
 onUnmounted(() => {
   generationAbortController?.abort();
+  chatSession.abort();
+  for (const controller of canvasControllers.values()) controller.abort();
+  canvasGraph.dispose();
   for (const image of results.value) URL.revokeObjectURL(image.previewUrl);
   if (previewNoticeTimer !== null) window.clearTimeout(previewNoticeTimer);
   window.removeEventListener("paste", onPaste);
@@ -973,6 +1132,8 @@ watch(
       retryStatusCodeOptions,
       retryCount,
       autoCheckUpdate,
+      textModel,
+      textModelOptions,
     ],
     () => {
       localStorage.setItem(
@@ -990,6 +1151,8 @@ watch(
             retryStatusCodeOptions: retryStatusCodeOptions.value,
             retryCount: retryCount.value,
             autoCheckUpdate: autoCheckUpdate.value,
+            textModel: textModel.value,
+            textModelOptions: textModelOptions.value,
           })
       );
     }
@@ -1474,6 +1637,392 @@ async function saveImage(img: ResultImage) {
     error.value = `保存失败: ${e?.message ?? e}`;
   }
 }
+
+function apiConnection(): OpenAIConnection {
+  return new OpenAIConnection(endpoint.value, apiKey.value);
+}
+
+function extractTextContent(value: unknown): string {
+  return OpenAIConnection.extractTextContent(value);
+}
+
+async function requestTextCompletion(
+    messages: any[],
+    signal: AbortSignal,
+    taskId: number,
+    modelName = textModel.value,
+    connection = apiConnection()
+): Promise<string> {
+  const retryConfig = getRetryConfig();
+  const resp = await fetchGeneration(
+      `${connection.baseUrl}/chat/completions`,
+      {
+        method: "POST",
+        headers: connection.jsonHeaders,
+        body: JSON.stringify({model: modelName, messages}),
+      },
+      retryConfig,
+      taskId,
+      signal
+  );
+  const data = await parseResponse(resp);
+  const content = extractTextContent(data.choices?.[0]?.message?.content);
+  if (!content.trim()) throw new Error("响应中没有文字内容");
+  return content;
+}
+
+async function sendChatMessage() {
+  if (chatLoading.value || !chatDraft.value.trim()) return;
+  const taskId = ++generationSequence;
+  await chatSession.send({
+    request: ({messages, signal}) => requestTextCompletion(
+        messages.map((message) => ({role: message.role, content: message.content})),
+        signal,
+        taskId
+    ),
+    onStart: (messageCount) => log(
+        "INFO",
+        `任务=#${taskId} 开始文字聊天: 模型=${textModel.value} 消息数=${messageCount}`
+    ),
+    onSuccess: () => log("INFO", `任务=#${taskId} 文字聊天完成`),
+    onStop: () => log("INFO", `任务=#${taskId} 文字聊天已停止`),
+    onError: (chatRequestError) => {
+      chatError.value = errorMessage(chatRequestError);
+      log("ERROR", `任务=#${taskId} 文字聊天失败: ${formatErrorDetails(chatRequestError)}`);
+    },
+  });
+}
+
+function stopChat() {
+  chatSession.stop();
+}
+
+function clearChat() {
+  chatSession.clear();
+}
+
+const appBusy = computed(() => loading.value || chatLoading.value || canvasBusyCount.value > 0);
+
+async function setAppMode(mode: WorkspaceMode) {
+  if (appBusy.value) return;
+  closeResultContextMenu();
+  closeResultLightbox();
+  if (mode === "canvas") seedCanvas();
+  await workspaceRouter.push({name: mode});
+}
+
+function seedCanvas() {
+  canvasGraph.seed(canvasNodeDefaults("text"), canvasNodeDefaults("image"));
+}
+
+function addCanvasTextNode() {
+  canvasGraph.add("text", canvasNodeDefaults("text"));
+}
+
+function addCanvasImageNode() {
+  canvasGraph.add("image", canvasNodeDefaults("image"));
+}
+
+function canvasNodeDefaults(type: "text" | "image") {
+  const profile = connectionProfiles.value.find((item) => item.id === activeConnectionId.value)
+      ?? connectionProfiles.value[0];
+  const preferredModel = type === "text" ? textModel.value : model.value;
+  return {
+    connectionId: profile?.id ?? "",
+    model: profile?.models.includes(preferredModel) ? preferredModel : profile?.models[0] ?? preferredModel,
+  };
+}
+
+function canvasConnectionModels(connectionId: string): string[] {
+  return connectionProfiles.value.find((profile) => profile.id === connectionId)?.models ?? [];
+}
+
+function updateCanvasNodeConnection(nodeId: string, connectionId: string) {
+  const profile = connectionProfiles.value.find((item) => item.id === connectionId);
+  if (!profile) return;
+  const node = canvasGraph.findNode(nodeId);
+  const nextModel = node && profile.models.includes(node.data.model)
+      ? node.data.model
+      : profile.models[0] ?? "";
+  updateCanvasNodeData(nodeId, {connectionId, model: nextModel, error: ""});
+}
+
+function onCanvasNodeConnectionChange(nodeId: string, event: Event) {
+  updateCanvasNodeConnection(nodeId, (event.target as HTMLSelectElement).value);
+}
+
+function connectionForCanvasNode(node: CanvasNode): OpenAIConnection {
+  const profile = connectionProfiles.value.find((item) => item.id === node.data.connectionId);
+  if (!profile) throw new Error("节点选择的 API 连接不存在，请重新选择");
+  if (!node.data.model.trim()) throw new Error("请为节点选择模型");
+  return new OpenAIConnection(profile.endpoint, profile.apiKey);
+}
+
+function updateCanvasNodeData(id: string, patch: Partial<CanvasNodeData>) {
+  canvasGraph.updateData(id, patch);
+}
+
+function onCanvasConnect(connection: Parameters<CanvasGraph["connect"]>[0]) {
+  canvasGraph.connect(connection);
+}
+
+function onCanvasNodesUpdate(nodes: Parameters<CanvasGraph["replaceNodes"]>[0]) {
+  canvasGraph.replaceNodes(nodes);
+}
+
+function onCanvasEdgesUpdate(edges: Parameters<CanvasGraph["replaceEdges"]>[0]) {
+  canvasGraph.replaceEdges(edges);
+}
+
+function deleteCanvasNode(id: string) {
+  for (const removedId of canvasGraph.deleteNode(id)) {
+    canvasControllers.get(removedId)?.abort();
+    canvasControllers.delete(removedId);
+  }
+}
+
+function canvasPrompt(node: CanvasNode): string {
+  return canvasGraph.prompt(node);
+}
+
+function canvasReferenceAssets(node: CanvasNode): CanvasImageAsset[] {
+  return canvasGraph.referenceAssets(node);
+}
+
+function assetToFile(asset: CanvasImageAsset): File {
+  return new File([asset.blob], asset.name, {type: asset.mime});
+}
+
+function onCanvasImageFiles(nodeId: string, event: Event) {
+  const input = event.target as HTMLInputElement;
+  canvasGraph.addFiles(nodeId, [...(input.files ?? [])]);
+  input.value = "";
+}
+
+function openCanvasImagePicker(nodeId: string) {
+  document.getElementById(`canvas-image-input-${nodeId}`)?.click();
+}
+
+function removeCanvasReference(nodeId: string, assetId: string) {
+  canvasGraph.removeReference(nodeId, assetId);
+}
+
+async function assetDataUrl(asset: CanvasImageAsset): Promise<string> {
+  return `data:${asset.mime};base64,${bufToBase64(await asset.blob.arrayBuffer())}`;
+}
+
+async function requestCanvasText(node: CanvasNode, signal: AbortSignal, taskId: number): Promise<string> {
+  const promptText = canvasPrompt(node);
+  if (!promptText) throw new Error("请先在节点或父节点中填写文字内容");
+  const content: any[] = [{type: "text", text: promptText}];
+  for (const asset of canvasReferenceAssets(node)) {
+    content.push({type: "image_url", image_url: {url: await assetDataUrl(asset)}});
+  }
+  return requestTextCompletion(
+      [{role: "user", content}],
+      signal,
+      taskId,
+      node.data.model,
+      connectionForCanvasNode(node)
+  );
+}
+
+async function generateCanvasText(nodeId: string) {
+  const node = canvasGraph.findNode(nodeId);
+  if (!node || node.type !== "text" || node.data.readOnly || canvasControllers.has(nodeId)) return;
+  const controller = new AbortController();
+  canvasControllers.set(nodeId, controller);
+  canvasBusyCount.value += 1;
+  updateCanvasNodeData(nodeId, {status: "running", error: ""});
+  try {
+    const output = await requestCanvasText(node, controller.signal, ++generationSequence);
+    canvasGraph.addGeneratedTextChild(nodeId, output);
+    updateCanvasNodeData(nodeId, {status: "success"});
+  } catch (e: unknown) {
+    if (controller.signal.aborted) {
+      updateCanvasNodeData(nodeId, {status: "idle"});
+    } else {
+      updateCanvasNodeData(nodeId, {status: "error", error: errorMessage(e)});
+    }
+  } finally {
+    canvasBusyCount.value -= 1;
+    canvasControllers.delete(nodeId);
+  }
+}
+
+async function downloadCanvasImageBlob(base: string, url: string, signal: AbortSignal): Promise<Blob> {
+  const candidates: string[] = [];
+  if (/^https?:\/\//i.test(url)) {
+    candidates.push(url);
+  } else {
+    const path = url.startsWith("/") ? url : `/${url}`;
+    candidates.push(base + path);
+    try {
+      const origin = new URL(base).origin;
+      if (origin + path !== base + path) candidates.push(origin + path);
+    } catch {
+    }
+  }
+  let lastStatus = 0;
+  for (const imageUrl of candidates) {
+    throwIfGenerationAborted(signal);
+    const response = await fetch(imageUrl, {signal});
+    if (response.ok) {
+      const buffer = await response.arrayBuffer();
+      return new Blob([buffer], {type: normalizeImageMime(response.headers.get("content-type"))});
+    }
+    lastStatus = response.status;
+  }
+  throw new Error(`下载图片失败 (${lastStatus})`);
+}
+
+async function requestCanvasImages(
+    node: CanvasNode,
+    promptText: string,
+    references: CanvasImageAsset[],
+    amount: number,
+    signal: AbortSignal,
+    taskId: number
+): Promise<Blob[]> {
+  const connection = connectionForCanvasNode(node);
+  const base = connection.baseUrl;
+  const retryConfig = getRetryConfig();
+  const useChat = apiMode.value === "chat" || (apiMode.value === "auto" && references.length > 1);
+  if (useChat) {
+    const content: any[] = [{type: "text", text: promptText}];
+    for (const asset of references) {
+      content.push({type: "image_url", image_url: {url: await assetDataUrl(asset)}});
+    }
+    const response = await fetchGeneration(
+        `${base}/chat/completions`,
+        {
+          method: "POST",
+          headers: connection.jsonHeaders,
+          body: JSON.stringify({model: node.data.model, messages: [{role: "user", content}], n: amount}),
+        },
+        retryConfig,
+        taskId,
+        signal
+    );
+    const data = await parseResponse(response);
+    const blobs: Blob[] = [];
+    for (const choice of data.choices ?? []) {
+      const message = choice.message ?? {};
+      for (const image of message.images ?? []) {
+        const url = image?.image_url?.url ?? image?.url;
+        if (url) blobs.push(await canvasImageUrlToBlob(base, url, signal));
+      }
+      const text = extractTextContent(message.content);
+      for (const match of text.matchAll(/data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)/g)) {
+        blobs.push(base64ToBlob(match[2], match[1]));
+      }
+      if (blobs.length === 0) {
+        for (const match of text.matchAll(/!\[[^\]]*\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g)) {
+          blobs.push(await canvasImageUrlToBlob(base, match[1], signal));
+        }
+      }
+    }
+    return blobs.slice(0, amount);
+  }
+
+  let response: Response;
+  if (references.length > 0) {
+    const form = new FormData();
+    form.append("model", node.data.model);
+    form.append("prompt", promptText);
+    form.append("n", String(amount));
+    if (size.value !== "auto") form.append("size", size.value);
+    for (const asset of references) form.append("image[]", assetToFile(asset), asset.name);
+    response = await fetchGeneration(
+        `${base}/images/edits`,
+        {method: "POST", headers: connection.authHeaders, body: form},
+        retryConfig,
+        taskId,
+        signal
+    );
+  } else {
+    response = await fetchGeneration(
+        `${base}/images/generations`,
+        {
+          method: "POST",
+          headers: connection.jsonHeaders,
+          body: JSON.stringify({
+            model: node.data.model,
+            prompt: promptText,
+            n: amount,
+            ...(size.value !== "auto" ? {size: size.value} : {}),
+          }),
+        },
+        retryConfig,
+        taskId,
+        signal
+    );
+  }
+  const data = await parseResponse(response);
+  const blobs: Blob[] = [];
+  for (const item of data.data ?? []) {
+    if (item.b64_json) blobs.push(base64ToBlob(item.b64_json, "image/png"));
+    else if (item.url) blobs.push(await canvasImageUrlToBlob(base, item.url, signal));
+  }
+  return blobs.slice(0, amount);
+}
+
+async function canvasImageUrlToBlob(base: string, url: string, signal: AbortSignal): Promise<Blob> {
+  const dataUrl = url.match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+  if (dataUrl) return base64ToBlob(dataUrl[2], dataUrl[1]);
+  return downloadCanvasImageBlob(base, url, signal);
+}
+
+async function generateCanvasImage(nodeId: string) {
+  const node = canvasGraph.findNode(nodeId);
+  if (!node || node.type !== "image" || node.data.readOnly || canvasControllers.has(nodeId)) return;
+  if (node.data.references.length > 0) {
+    updateCanvasNodeData(nodeId, {status: "error", error: "参考图节点不能直接生成，请新建图像节点并连接此节点"});
+    return;
+  }
+  const promptText = canvasPrompt(node);
+  if (!promptText) {
+    updateCanvasNodeData(nodeId, {status: "error", error: "请先填写提示词或连接文字节点"});
+    return;
+  }
+  const references = canvasReferenceAssets(node);
+  const amount = Math.max(1, Math.min(10, Number(node.data.count) || 1));
+  const controller = new AbortController();
+  canvasControllers.set(nodeId, controller);
+  canvasBusyCount.value += 1;
+  updateCanvasNodeData(nodeId, {status: "running", error: ""});
+  try {
+    const blobs = await requestCanvasImages(
+        node,
+        promptText,
+        references,
+        amount,
+        controller.signal,
+        ++generationSequence
+    );
+    if (blobs.length === 0) throw new Error("响应中没有图片数据");
+    canvasGraph.addGeneratedOutputs(nodeId, blobs);
+    updateCanvasNodeData(nodeId, {status: "success"});
+  } catch (e: unknown) {
+    if (controller.signal.aborted) updateCanvasNodeData(nodeId, {status: "idle"});
+    else updateCanvasNodeData(nodeId, {status: "error", error: errorMessage(e)});
+  } finally {
+    canvasBusyCount.value -= 1;
+    canvasControllers.delete(nodeId);
+  }
+}
+
+function stopCanvasNode(nodeId: string) {
+  canvasControllers.get(nodeId)?.abort();
+}
+
+function clearCanvas() {
+  if (canvasNodes.value.length === 0) return;
+  if (!window.confirm("确定清空无尽画布中的全部节点和连接吗？")) return;
+  for (const controller of canvasControllers.values()) controller.abort();
+  canvasControllers.clear();
+  canvasGraph.clear();
+}
 </script>
 
 <template>
@@ -1523,6 +2072,15 @@ async function saveImage(img: ResultImage) {
                 <span v-if="activeConnectionId === profile.id" class="combo-check" aria-hidden="true">✓</span>
               </button>
               <button
+                  type="button"
+                  class="combo-edit-option"
+                  :aria-label="`编辑连接 ${connectionOptionNumber(profile)}，${profile.endpoint}`"
+                  title="编辑连接"
+                  @click.stop="openConnectionModal(profile)"
+              >
+                编辑
+              </button>
+              <button
                   v-if="connectionProfiles.length > 1"
                   type="button"
                   class="combo-remove-option"
@@ -1533,14 +2091,14 @@ async function saveImage(img: ResultImage) {
                 ×
               </button>
             </div>
-            <button type="button" class="combo-add" @click="openConnectionModal">
+            <button type="button" class="combo-add" @click="openConnectionModal()">
               <span aria-hidden="true">＋</span>
               <span>添加连接</span>
             </button>
           </div>
         </div>
       </div>
-      <div class="field">
+      <div v-if="appMode !== 'chat'" class="field">
         <label for="model-input">模型 ID</label>
         <div ref="modelPicker" class="combo-picker">
           <div class="combo-control" :class="{ open: modelMenuOpen }">
@@ -1604,7 +2162,23 @@ async function saveImage(img: ResultImage) {
           </div>
         </div>
       </div>
-      <label>
+      <div v-if="appMode !== 'image'" class="field text-model-field">
+        <label for="text-model-input">文字模型</label>
+        <input
+            id="text-model-input"
+            v-model="textModel"
+            list="text-model-options"
+            autocomplete="off"
+            placeholder="gpt-4o-mini"
+            @change="addTextModelOption"
+            @keydown.enter.prevent="addTextModelOption"
+        />
+        <datalist id="text-model-options">
+          <option v-for="option in textModelOptions" :key="option" :value="option"></option>
+        </datalist>
+      </div>
+
+      <label v-if="appMode !== 'chat'">
         接口模式
         <select v-model="apiMode">
           <option value="auto">自动（多参考图走 Chat）</option>
@@ -1720,20 +2294,22 @@ async function saveImage(img: ResultImage) {
         <input v-model.number="retryCount" :disabled="!retryEnabled" type="number" min="1" max="20"/>
       </label>
 
-      <h2>生成参数</h2>
-      <label>
-        尺寸
-        <select v-model="size">
-          <option value="auto">自动</option>
-          <option value="1024x1024">1024×1024</option>
-          <option value="1536x1024">1536×1024 (横)</option>
-          <option value="1024x1536">1024×1536 (竖)</option>
-        </select>
-      </label>
-      <label>
-        数量
-        <input v-model.number="count" type="number" min="1" max="10"/>
-      </label>
+      <template v-if="appMode !== 'chat'">
+        <h2>生成参数</h2>
+        <label>
+          尺寸
+          <select v-model="size">
+            <option value="auto">自动</option>
+            <option value="1024x1024">1024×1024</option>
+            <option value="1536x1024">1536×1024 (横)</option>
+            <option value="1024x1536">1024×1536 (竖)</option>
+          </select>
+        </label>
+        <label>
+          数量
+          <input v-model.number="count" type="number" min="1" max="10"/>
+        </label>
+      </template>
 
       <h2>更新</h2>
       <label class="checkbox-row">
@@ -1754,6 +2330,24 @@ async function saveImage(img: ResultImage) {
     </aside>
 
     <section class="content">
+      <nav class="mode-switcher" aria-label="工作区模式">
+        <a-button-group>
+          <a-button :type="appMode === 'image' ? 'primary' : 'text'" :disabled="appBusy" @click="setAppMode('image')">图像生成</a-button>
+          <a-button :type="appMode === 'chat' ? 'primary' : 'text'" :disabled="appBusy" @click="setAppMode('chat')">聊天</a-button>
+          <a-button :type="appMode === 'canvas' ? 'primary' : 'text'" :disabled="appBusy" @click="setAppMode('canvas')">无尽画布</a-button>
+        </a-button-group>
+      </nav>
+
+      <div v-if="showLogs" class="log-panel">
+        <div class="log-header">
+          <span>运行日志（本次会话 {{ logs.length }} 条）</span>
+          <button @click="openLogFile">打开日志文件</button>
+        </div>
+        <p v-if="logFilePath" class="log-path">{{ logFilePath }}</p>
+        <pre class="log-body">{{ logs.length ? logs.join("\n") : "暂无日志" }}</pre>
+      </div>
+
+      <template v-if="appMode === 'image'">
       <div class="prompt-area">
         <textarea
             v-model="prompt"
@@ -1808,15 +2402,6 @@ async function saveImage(img: ResultImage) {
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
-
-      <div v-if="showLogs" class="log-panel">
-        <div class="log-header">
-          <span>运行日志（本次会话 {{ logs.length }} 条）</span>
-          <button @click="openLogFile">打开日志文件</button>
-        </div>
-        <p v-if="logFilePath" class="log-path">{{ logFilePath }}</p>
-        <pre class="log-body">{{ logs.length ? logs.join("\n") : "暂无日志" }}</pre>
-      </div>
 
       <section class="preview-panel" aria-label="预览区域">
         <div class="preview-toolbar">
@@ -1924,6 +2509,164 @@ async function saveImage(img: ResultImage) {
             @dblclick.prevent="closeResultLightbox"
         />
       </div>
+      </template>
+
+      <section v-else-if="appMode === 'chat'" class="chat-workspace">
+        <div class="workspace-toolbar">
+          <div>
+            <strong>文字聊天</strong>
+            <span class="workspace-meta">{{ endpoint }} · Key {{ maskApiKey(apiKey) }} · {{ textModel }}</span>
+          </div>
+          <a-button size="small" :disabled="chatLoading || chatMessages.length === 0" @click="clearChat">清空会话</a-button>
+        </div>
+        <div class="chat-messages" aria-live="polite">
+          <div v-if="chatMessages.length === 0" class="chat-empty">开始一段文字对话</div>
+          <article v-for="message in chatMessages" :key="message.id" class="chat-message" :class="message.role">
+            <div class="chat-role">{{ message.role === 'user' ? '你' : '助手' }}</div>
+            <p>{{ message.content }}</p>
+          </article>
+          <div v-if="chatLoading" class="chat-message assistant chat-thinking">正在思考...</div>
+        </div>
+        <p v-if="chatError" class="error">{{ chatError }}</p>
+        <div class="chat-composer">
+          <textarea
+              v-model="chatDraft"
+              rows="4"
+              placeholder="输入消息..."
+              @keydown.ctrl.enter="sendChatMessage"
+          ></textarea>
+          <div class="chat-actions">
+            <button v-if="chatLoading" type="button" class="stop-generation" :disabled="chatStopping" @click="stopChat">
+              <span class="stop-icon" aria-hidden="true"></span>
+              {{ chatStopping ? '停止中...' : '停止' }}
+            </button>
+            <button type="button" class="generate" :disabled="chatLoading || !chatDraft.trim()" @click="sendChatMessage">
+              {{ chatLoading ? '生成中...' : '发送' }}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section v-else class="canvas-workspace">
+        <div class="workspace-toolbar canvas-toolbar">
+          <div>
+            <strong>无尽画布</strong>
+            <span class="workspace-meta">{{ connectionProfiles.length }} 个 API 连接</span>
+          </div>
+          <div class="canvas-toolbar-actions">
+            <a-button size="small" @click="addCanvasTextNode">＋文字节点</a-button>
+            <a-button size="small" @click="addCanvasImageNode">＋图像节点</a-button>
+            <a-button size="small" status="danger" :disabled="canvasNodes.length === 0" @click="clearCanvas">清空画布</a-button>
+          </div>
+        </div>
+        <div class="canvas-shell">
+          <VueFlow
+              id="main-canvas"
+              :nodes="canvasNodes"
+              :edges="canvasEdges"
+              class="canvas-flow"
+              :min-zoom="0.2"
+              :max-zoom="2.5"
+              :default-viewport="{ x: 0, y: 0, zoom: 0.9 }"
+              fit-view-on-init
+              @connect="onCanvasConnect"
+              @update:nodes="onCanvasNodesUpdate"
+              @update:edges="onCanvasEdgesUpdate"
+          >
+            <template #node-text="{ id, data }">
+              <div class="canvas-node canvas-text-node">
+                <Handle type="target" :position="Position.Left" />
+                <div class="canvas-node-header">
+                  <strong>{{ data.title }}</strong>
+                  <button type="button" class="canvas-node-delete nodrag" title="删除节点" @click.stop="deleteCanvasNode(id)">×</button>
+                </div>
+                <div class="canvas-node-config nodrag">
+                  <label>
+                    API 连接
+                    <select :value="data.connectionId" @change="onCanvasNodeConnectionChange(id, $event)">
+                      <option v-for="profile in connectionProfiles" :key="profile.id" :value="profile.id">
+                        {{ profile.endpoint }} · {{ maskApiKey(profile.apiKey) }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    模型
+                    <select v-model="data.model">
+                      <option v-for="modelName in canvasConnectionModels(data.connectionId)" :key="modelName" :value="modelName">
+                        {{ modelName }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <textarea v-model="data.text" class="nodrag" rows="5" placeholder="输入文字内容"></textarea>
+                <p v-if="data.error" class="canvas-node-error nodrag">{{ data.error }}</p>
+                <div class="canvas-node-actions nodrag">
+                  <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
+                  <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
+                  <button v-if="data.status === 'running'" type="button" class="node-stop" @click.stop="stopCanvasNode(id)">停止</button>
+                  <button v-else type="button" class="node-generate" @click.stop="generateCanvasText(id)">生成文字</button>
+                </div>
+                <Handle type="source" :position="Position.Right" />
+              </div>
+            </template>
+
+            <template #node-image="{ id, data }">
+              <div class="canvas-node canvas-image-node" :class="{ readonly: data.readOnly }">
+                <Handle type="target" :position="Position.Left" />
+                <div class="canvas-node-header">
+                  <strong>{{ data.title }}</strong>
+                  <button type="button" class="canvas-node-delete nodrag" title="删除节点" @click.stop="deleteCanvasNode(id)">×</button>
+                </div>
+                <div class="canvas-node-config nodrag">
+                  <label>
+                    API 连接
+                    <select :value="data.connectionId" @change="onCanvasNodeConnectionChange(id, $event)">
+                      <option v-for="profile in connectionProfiles" :key="profile.id" :value="profile.id">
+                        {{ profile.endpoint }} · {{ maskApiKey(profile.apiKey) }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    模型
+                    <select v-model="data.model">
+                      <option v-for="modelName in canvasConnectionModels(data.connectionId)" :key="modelName" :value="modelName">
+                        {{ modelName }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <div v-if="data.references.length" class="canvas-node-images nodrag">
+                  <div v-for="asset in data.references" :key="asset.id" class="canvas-node-image">
+                    <img :src="asset.url" :alt="asset.name" :title="asset.name"/>
+                    <button v-if="!data.readOnly" type="button" @click.stop="removeCanvasReference(id, asset.id)">×</button>
+                  </div>
+                </div>
+                <p v-else-if="data.readOnly" class="canvas-empty-image nodrag">暂无图片</p>
+                <template v-if="!data.readOnly && data.references.length === 0">
+                  <textarea v-model="data.prompt" class="nodrag" rows="3" placeholder="描述要生成的图片"></textarea>
+                  <div class="canvas-image-options nodrag">
+                    <button type="button" class="secondary-action" @click.stop="openCanvasImagePicker(id)">添加参考图</button>
+                    <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="onCanvasImageFiles(id, $event)"/>
+                    <label>数量 <input v-model.number="data.count" type="number" min="1" max="10" @click.stop/></label>
+                  </div>
+                  <div class="canvas-node-actions nodrag">
+                    <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
+                    <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
+                    <button v-if="data.status === 'running'" type="button" class="node-stop" @click.stop="stopCanvasNode(id)">停止</button>
+                    <button v-else type="button" class="node-generate" @click.stop="generateCanvasImage(id)">生成图片</button>
+                  </div>
+                </template>
+                <div v-else-if="!data.readOnly" class="canvas-reference-actions nodrag">
+                  <span>参考图节点</span>
+                  <button type="button" class="secondary-action" @click.stop="openCanvasImagePicker(id)">添加图片</button>
+                  <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="onCanvasImageFiles(id, $event)"/>
+                </div>
+                <Handle type="source" :position="Position.Right" />
+              </div>
+            </template>
+          </VueFlow>
+        </div>
+      </section>
     </section>
 
     <div v-if="connectionModalOpen" class="modal-backdrop" @mousedown.self="closeConnectionModal">
@@ -1936,7 +2679,7 @@ async function saveImage(img: ResultImage) {
           @keydown.esc.prevent="closeConnectionModal"
       >
         <div class="modal-header">
-          <h2 id="connection-modal-title">添加 API 连接</h2>
+          <h2 id="connection-modal-title">{{ connectionDraftId ? '编辑 API 连接' : '添加 API 连接' }}</h2>
           <button type="button" aria-label="关闭" title="关闭" @click="closeConnectionModal">×</button>
         </div>
         <label for="connection-endpoint-input">
@@ -1960,10 +2703,29 @@ async function saveImage(img: ResultImage) {
               placeholder="sk-..."
           />
         </label>
+        <div class="connection-model-editor">
+          <label for="connection-model-input">可用模型</label>
+          <div class="connection-model-input-row">
+            <input
+                id="connection-model-input"
+                v-model="connectionDraftModelInput"
+                autocomplete="off"
+                placeholder="输入模型 ID"
+                @keydown.enter.prevent="addConnectionDraftModel"
+            />
+            <button type="button" @click="addConnectionDraftModel">添加</button>
+          </div>
+          <div class="connection-model-list">
+            <span v-for="modelName in connectionDraftModels" :key="modelName" class="connection-model-chip">
+              <span :title="modelName">{{ modelName }}</span>
+              <button type="button" :aria-label="`删除模型 ${modelName}`" title="删除模型" @click="removeConnectionDraftModel(modelName)">×</button>
+            </span>
+          </div>
+        </div>
         <p v-if="connectionDraftError" class="modal-error">{{ connectionDraftError }}</p>
         <div class="modal-actions">
           <button type="button" class="modal-cancel" @click="closeConnectionModal">取消</button>
-          <button type="submit" class="modal-save">保存连接</button>
+          <button type="submit" class="modal-save">{{ connectionDraftId ? '保存修改' : '保存连接' }}</button>
         </div>
       </form>
     </div>
@@ -2269,6 +3031,25 @@ textarea:focus {
   color: #fca5a5;
 }
 
+.combo-edit-option {
+  min-width: 42px;
+  height: 28px;
+  flex: 0 0 42px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #a1a1aa;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.combo-edit-option:hover {
+  background: #3f3f46;
+  color: #fff;
+}
+
 .combo-add {
   display: flex;
   align-items: center;
@@ -2418,6 +3199,77 @@ textarea:focus {
 
 .connection-modal input {
   width: 100%;
+}
+
+.connection-model-editor {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.connection-model-input-row {
+  display: flex;
+  gap: 7px;
+}
+
+.connection-model-input-row input {
+  min-width: 0;
+  flex: 1;
+}
+
+.connection-model-input-row button {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: 1px solid #52525b;
+  border-radius: 6px;
+  background: #27272a;
+  color: #e4e4e7;
+  font: inherit;
+  cursor: pointer;
+}
+
+.connection-model-list {
+  display: flex;
+  max-height: 138px;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.connection-model-chip {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 26px;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  border: 1px solid #52525b;
+  border-radius: 4px;
+  background: #323237;
+  color: #d4d4d8;
+  font-size: 12px;
+}
+
+.connection-model-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-model-chip button {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a1a1aa;
+  cursor: pointer;
+}
+
+.connection-model-chip button:hover {
+  color: #fca5a5;
 }
 
 .modal-error {
@@ -2777,6 +3629,472 @@ textarea {
   gap: 16px;
 }
 
+.mode-switcher {
+  display: inline-flex;
+  align-self: flex-start;
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 1px solid #3f3f46;
+  border-radius: 7px;
+  background: #1f1f23;
+}
+
+.mode-switcher :deep(.arco-btn-group) {
+  display: flex;
+}
+
+.mode-switcher :deep(.arco-btn) {
+  min-height: 30px;
+  padding: 5px 13px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #a1a1aa;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mode-switcher :deep(.arco-btn:hover:not(:disabled)) {
+  color: #f4f4f5;
+}
+
+.mode-switcher :deep(.arco-btn-primary) {
+  background: #4f46e5;
+  color: #fff;
+}
+
+.mode-switcher :deep(.arco-btn:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.workspace-toolbar :deep(.arco-btn-secondary) {
+  border-color: #3f3f46;
+  background: #27272a;
+  color: #d4d4d8;
+}
+
+.workspace-toolbar :deep(.arco-btn-secondary:hover) {
+  border-color: #71717a;
+  color: #fff;
+}
+
+.workspace-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.workspace-toolbar > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-toolbar strong {
+  font-size: 14px;
+  color: #f4f4f5;
+}
+
+.workspace-meta {
+  max-width: min(620px, 70vw);
+  overflow: hidden;
+  color: #71717a;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secondary-action {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #27272a;
+  color: #d4d4d8;
+  font: inherit;
+  cursor: pointer;
+}
+
+.secondary-action:hover:not(:disabled) {
+  border-color: #71717a;
+  color: #fff;
+}
+
+.secondary-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chat-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-messages {
+  display: flex;
+  flex: 1;
+  min-height: 240px;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 10px 2px;
+}
+
+.chat-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  color: #52525b;
+}
+
+.chat-message {
+  max-width: min(780px, 88%);
+}
+
+.chat-message.user {
+  align-self: flex-end;
+}
+
+.chat-message.assistant {
+  align-self: flex-start;
+}
+
+.chat-role {
+  margin-bottom: 5px;
+  color: #71717a;
+  font-size: 12px;
+}
+
+.chat-message p,
+.chat-thinking {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #3f3f46;
+  border-radius: 7px;
+  background: #222225;
+  color: #e4e4e7;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-message.user p {
+  border-color: #4f46e5;
+  background: #312e8155;
+}
+
+.chat-thinking {
+  color: #a1a1aa;
+}
+
+.chat-composer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #2e2e33;
+}
+
+.chat-composer textarea {
+  min-height: 92px;
+}
+
+.chat-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chat-actions .generate {
+  min-width: 100px;
+}
+
+.canvas-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.canvas-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.canvas-shell {
+  flex: 1;
+  min-height: 460px;
+  overflow: hidden;
+  border: 1px solid #2e2e33;
+  border-radius: 7px;
+}
+
+.canvas-flow {
+  width: 100%;
+  height: 100%;
+  background-color: #171716;
+  background-image:
+      linear-gradient(#282826 1px, transparent 1px),
+      linear-gradient(90deg, #282826 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.canvas-flow :deep(.vue-flow__node) {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.canvas-flow :deep(.vue-flow__node.selected .canvas-node) {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f655;
+}
+
+.canvas-flow :deep(.vue-flow__edge-path) {
+  stroke: #d4d4d8;
+  stroke-width: 1.6;
+}
+
+.canvas-flow :deep(.vue-flow__handle) {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #18181b;
+  background: #a1a1aa;
+}
+
+.canvas-node {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 220px;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid #52525b;
+  border-radius: 8px;
+  background: #272422;
+  color: #e4e4e7;
+  box-shadow: 0 12px 28px #0006;
+}
+
+.canvas-node-header {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.canvas-node-header strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-node-config {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+}
+
+.canvas-node-config label {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 66px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.canvas-node-config select {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canvas-node-delete {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #a1a1aa;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.canvas-node-delete:hover {
+  background: #7f1d1d88;
+  color: #fecaca;
+}
+
+.canvas-node textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  background: #211f1e;
+}
+
+.canvas-node-output {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  color: #d4d4d8;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.canvas-node-actions {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: auto;
+}
+
+.canvas-node-actions button {
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.node-generate {
+  border: 1px solid #4f46e5;
+  background: #4f46e5;
+}
+
+.node-stop {
+  border: 1px solid #b91c1c;
+  background: #7f1d1d99;
+}
+
+.canvas-node-status,
+.canvas-node-success {
+  margin-right: auto;
+  font-size: 12px;
+}
+
+.canvas-node-status {
+  color: #93c5fd;
+}
+
+.canvas-node-success {
+  color: #86efac;
+}
+
+.canvas-node-error {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.canvas-node-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.canvas-node-image {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #18181b;
+}
+
+.canvas-node-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.canvas-node-image button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: #18181bcc;
+  color: #fff;
+  cursor: pointer;
+}
+
+.canvas-empty-image {
+  display: flex;
+  min-height: 150px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: #71717a;
+}
+
+.canvas-image-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.canvas-image-options label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.canvas-image-options input {
+  width: 66px;
+  padding: 5px 7px;
+}
+
+.canvas-reference-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.canvas-image-node.readonly {
+  min-height: 220px;
+}
+
 .result-card {
   display: flex;
   flex-direction: column;
@@ -2918,5 +4236,48 @@ textarea {
   border: 1px dashed #3f3f46;
   border-radius: 8px;
   min-height: 200px;
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    width: 220px;
+    padding: 12px;
+  }
+
+  .content {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .mode-switcher {
+    width: 100%;
+  }
+
+  .mode-switcher :deep(.arco-btn-group) {
+    width: 100%;
+  }
+
+  .mode-switcher :deep(.arco-btn) {
+    flex: 1;
+    min-width: 0;
+    padding-inline: 6px;
+  }
+
+  .workspace-meta {
+    max-width: calc(100vw - 260px);
+  }
+
+  .chat-message {
+    max-width: 96%;
+  }
+
+  .canvas-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .canvas-shell {
+    min-height: 420px;
+  }
 }
 </style>
