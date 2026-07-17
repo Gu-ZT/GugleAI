@@ -4,7 +4,6 @@ import {onMounted, onUnmounted, ref} from "vue";
 const props = defineProps<{app: any}>();
 const connectionPicker = ref<HTMLElement>();
 const modelPicker = ref<HTMLElement>();
-const retryStatusCodePicker = ref<HTMLElement>();
 
 function closePickerMenus(event: PointerEvent) {
   const target = event.target as Node;
@@ -13,16 +12,6 @@ function closePickerMenus(event: PointerEvent) {
     props.app.modelMenuOpen = false;
     props.app.modelShowAll = true;
   }
-  if (!retryStatusCodePicker.value?.contains(target)) {
-    props.app.retryStatusCodeMenuOpen = false;
-  }
-}
-
-function close() {
-  props.app.settingsModalOpen = false;
-  props.app.connectionMenuOpen = false;
-  props.app.modelMenuOpen = false;
-  props.app.retryStatusCodeMenuOpen = false;
 }
 
 onMounted(() => document.addEventListener("pointerdown", closePickerMenus));
@@ -30,14 +19,15 @@ onUnmounted(() => document.removeEventListener("pointerdown", closePickerMenus))
 </script>
 
 <template>
-  <div v-if="app.settingsModalOpen" class="modal-backdrop settings-backdrop" @mousedown.self="close">
-    <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" @keydown.esc.prevent="close">
-      <div class="modal-header">
-        <h2 id="settings-modal-title">设置</h2>
-        <button type="button" aria-label="关闭" title="关闭" @click="close">×</button>
+  <section class="settings-page" aria-labelledby="settings-page-title">
+    <div class="workspace-toolbar settings-page-toolbar">
+      <div>
+        <strong id="settings-page-title">设置</strong>
+        <span class="workspace-meta">连接、模型、更新与日志</span>
       </div>
+    </div>
 
-      <div class="settings-body">
+    <div class="settings-page-body">
         <h3>连接设置</h3>
         <div class="field">
           <label id="connection-picker-label">API 连接</label>
@@ -93,7 +83,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", closePickerMenus))
           </div>
         </div>
 
-        <div v-if="app.appMode !== 'chat'" class="field">
+        <div class="field">
           <label for="model-input">模型 ID</label>
           <div ref="modelPicker" class="combo-picker">
             <div class="combo-control" :class="{ open: app.modelMenuOpen }">
@@ -133,7 +123,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", closePickerMenus))
           </div>
         </div>
 
-        <div v-if="app.appMode !== 'image'" class="field text-model-field">
+        <div class="field text-model-field">
           <label for="text-model-input">文字模型</label>
           <input
               id="text-model-input"
@@ -148,89 +138,6 @@ onUnmounted(() => document.removeEventListener("pointerdown", closePickerMenus))
             <option v-for="option in app.textModelOptions" :key="option" :value="option"></option>
           </datalist>
         </div>
-
-        <label v-if="app.appMode !== 'chat'">
-          接口模式
-          <select v-model="app.apiMode">
-            <option value="auto">自动（多参考图走 Chat）</option>
-            <option value="images">Images 接口</option>
-            <option value="chat">Chat 接口</option>
-          </select>
-        </label>
-
-        <h3>请求重试</h3>
-        <label class="checkbox-row">
-          <input v-model="app.retryEnabled" type="checkbox"/><span>自动重试</span>
-        </label>
-        <div class="field">
-          <label for="retry-status-code-input">重试错误码</label>
-          <div ref="retryStatusCodePicker" class="combo-picker">
-            <div class="combo-control combo-control-multi" :class="{ open: app.retryStatusCodeMenuOpen, disabled: !app.retryEnabled }">
-              <div class="combo-values">
-                <button
-                    v-for="code in app.retryStatusCodes"
-                    :key="code"
-                    type="button"
-                    class="status-code-chip"
-                    :disabled="!app.retryEnabled"
-                    @click="app.toggleRetryStatusCode(code)"
-                >{{ code }}<span aria-hidden="true">×</span></button>
-                <input
-                    id="retry-status-code-input"
-                    v-model="app.retryStatusCodeInput"
-                    :disabled="!app.retryEnabled"
-                    inputmode="numeric"
-                    maxlength="3"
-                    autocomplete="off"
-                    placeholder="输入错误码"
-                    @focus="app.retryStatusCodeMenuOpen = true"
-                    @input="app.retryStatusCodeMenuOpen = true"
-                    @keydown.enter.prevent="app.addRetryStatusCode"
-                />
-              </div>
-              <button type="button" class="combo-toggle" aria-label="展开错误码选项" :disabled="!app.retryEnabled" @click="app.retryStatusCodeMenuOpen = !app.retryStatusCodeMenuOpen">
-                <span class="chevron" aria-hidden="true"></span>
-              </button>
-            </div>
-            <div v-if="app.retryStatusCodeMenuOpen && app.retryEnabled" class="combo-menu">
-              <div v-for="code in app.filteredRetryStatusCodeOptions" :key="code" class="combo-option-row" :class="{ selected: app.retryStatusCodes.includes(code) }">
-                <label class="combo-checkbox-option">
-                  <input type="checkbox" :checked="app.retryStatusCodes.includes(code)" @change="app.toggleRetryStatusCode(code)"/>
-                  <span>{{ code }}</span>
-                </label>
-                <button
-                    v-if="!app.DEFAULT_RETRY_STATUS_CODE_OPTIONS.includes(code)"
-                    type="button"
-                    class="combo-remove-option"
-                    title="删除自定义选项"
-                    @click="app.removeRetryStatusCodeOption(code)"
-                >×</button>
-              </div>
-              <button v-if="app.showRetryStatusCodeInputAction" type="button" class="combo-add" @click="app.addRetryStatusCode">
-                <span aria-hidden="true">＋</span><span>添加并选择 {{ app.retryStatusCodeInputValue }}</span>
-              </button>
-              <p v-if="app.filteredRetryStatusCodeOptions.length === 0 && !app.showRetryStatusCodeInputAction" class="combo-empty">无匹配项</p>
-            </div>
-          </div>
-        </div>
-        <label>
-          重试次数
-          <input v-model.number="app.retryCount" :disabled="!app.retryEnabled" type="number" min="1" max="20"/>
-        </label>
-
-        <template v-if="app.appMode !== 'chat'">
-          <h3>生成参数</h3>
-          <label>
-            尺寸
-            <select v-model="app.size">
-              <option value="auto">自动</option>
-              <option value="1024x1024">1024×1024</option>
-              <option value="1536x1024">1536×1024 (横)</option>
-              <option value="1024x1536">1024×1536 (竖)</option>
-            </select>
-          </label>
-          <label>数量 <input v-model.number="app.count" type="number" min="1" max="10"/></label>
-        </template>
 
         <h3>更新与日志</h3>
         <label class="checkbox-row">
@@ -255,6 +162,5 @@ onUnmounted(() => document.removeEventListener("pointerdown", closePickerMenus))
           <pre class="log-body">{{ app.logs.length ? app.logs.join("\n") : "暂无日志" }}</pre>
         </div>
       </div>
-    </section>
-  </div>
+  </section>
 </template>

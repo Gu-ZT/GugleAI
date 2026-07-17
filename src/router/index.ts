@@ -2,8 +2,9 @@ import {createRouter, createWebHashHistory, type RouteRecordRaw} from "vue-route
 import ImageView from "../views/ImageView.vue";
 import ChatView from "../views/ChatView.vue";
 import CanvasView from "../views/CanvasView.vue";
+import SettingsView from "../views/SettingsView.vue";
 
-export type WorkspaceMode = "image" | "chat" | "canvas";
+export type WorkspaceMode = "image" | "chat" | "canvas" | "settings";
 
 const LAST_MODE_KEY = "gugle-ai-last-workspace";
 
@@ -12,6 +13,7 @@ const routes: RouteRecordRaw[] = [
   {path: "/image", name: "image", component: ImageView},
   {path: "/chat", name: "chat", component: ChatView},
   {path: "/canvas", name: "canvas", component: CanvasView},
+  {path: "/settings", name: "settings", component: SettingsView},
   {path: "/:pathMatch(.*)*", redirect: "/image"},
 ];
 
@@ -26,10 +28,10 @@ router.afterEach((to) => {
 });
 
 export function workspaceModeFromRoute(name: unknown): WorkspaceMode {
-  return name === "chat" || name === "canvas" ? name : "image";
+  return name === "chat" || name === "canvas" || name === "settings" ? name : "image";
 }
 
 export function restoreWorkspaceMode(): WorkspaceMode {
   const saved = localStorage.getItem(LAST_MODE_KEY);
-  return saved === "chat" || saved === "canvas" ? saved : "image";
+  return saved === "chat" || saved === "canvas" || saved === "settings" ? saved : "image";
 }

@@ -16,7 +16,6 @@ import {OpenAIConnection} from "./api";
 import {CanvasGraph, type CanvasImageAsset, type CanvasNode, type CanvasNodeData} from "./canvas";
 import {ChatSession} from "./chat";
 import {workspaceModeFromRoute, type WorkspaceMode} from "./router";
-import SettingsModal from "./components/modals/SettingsModal.vue";
 import ConnectionModal from "./components/modals/ConnectionModal.vue";
 import ResultOverlays from "./components/modals/ResultOverlays.vue";
 
@@ -153,7 +152,6 @@ const dragOver = ref(false);
 const resultContextMenu = ref<ResultContextMenuState | null>(null);
 const enlargedResult = ref<ResultImage | null>(null);
 const previewNotice = ref("");
-const settingsModalOpen = ref(false);
 
 const chatSession = new ChatSession();
 const chatMessages = chatSession.messages;
@@ -2008,9 +2006,7 @@ function clearCanvas() {
 }
 
 const viewModel = reactive({
-  appMode,
   appBusy,
-  settingsModalOpen,
   endpoint,
   apiKey,
   connectionProfiles,
@@ -2171,9 +2167,10 @@ const viewModel = reactive({
       <button
           type="button"
           class="nav-rail-button settings-button"
-          :class="{ active: settingsModalOpen }"
+          :class="{ active: appMode === 'settings' }"
+          :disabled="appBusy"
           title="设置"
-          @click="settingsModalOpen = true"
+          @click="setAppMode('settings')"
       >
         <IconSettings aria-hidden="true"/>
         <span>设置</span>
@@ -2186,7 +2183,6 @@ const viewModel = reactive({
       </RouterView>
     </section>
 
-    <SettingsModal :app="viewModel"/>
     <ConnectionModal :app="viewModel"/>
     <ResultOverlays :app="viewModel"/>
   </main>
@@ -2666,49 +2662,46 @@ textarea:focus {
   background: #09090bb8;
 }
 
-.settings-backdrop {
-  z-index: 90;
-}
-
 .connection-backdrop {
   z-index: 110;
 }
 
-.settings-modal {
+.settings-page {
   display: flex;
-  width: min(560px, 100%);
-  max-height: calc(100vh - 32px);
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid #3f3f46;
-  border-radius: 8px;
-  background: #1f1f23;
-  box-shadow: 0 16px 48px #000a;
-}
-
-.settings-modal > .modal-header {
-  flex: 0 0 auto;
-  padding: 14px 16px;
-  border-bottom: 1px solid #2e2e33;
-}
-
-.settings-body {
-  display: flex;
+  flex: 1;
   min-height: 0;
   flex-direction: column;
   gap: 12px;
-  overflow-y: auto;
-  padding: 14px 16px 18px;
 }
 
-.settings-body h3 {
+.settings-page-toolbar {
+  flex: 0 0 auto;
+  border-bottom: 1px solid #2e2e33;
+  padding-bottom: 10px;
+}
+
+.settings-page-body {
+  display: grid;
+  width: min(760px, 100%);
+  min-height: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.settings-page-body h3 {
+  grid-column: 1 / -1;
   margin: 6px 0 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #2e2e33;
   color: #a1a1aa;
   font-size: 12px;
   letter-spacing: 0;
 }
 
 .settings-log-panel {
+  grid-column: 1 / -1;
   max-height: 260px;
 }
 
@@ -2969,6 +2962,32 @@ textarea {
   min-height: 0;
   flex-direction: column;
   gap: 16px;
+}
+
+.image-generation-config {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px 0;
+  border-top: 1px solid #2e2e33;
+  border-bottom: 1px solid #2e2e33;
+}
+
+.image-generation-config > strong {
+  color: #d4d4d8;
+  font-size: 12px;
+}
+
+.image-generation-config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 9px 12px;
+}
+
+.image-retry-toggle {
+  min-height: 36px;
+  padding-bottom: 8px;
 }
 
 .action-buttons {
@@ -3779,6 +3798,14 @@ textarea {
     max-width: calc(100vw - 112px);
   }
 
+  .settings-page-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .image-generation-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .chat-message {
     max-width: 96%;
   }
@@ -3790,6 +3817,12 @@ textarea {
 
   .canvas-shell {
     min-height: 420px;
+  }
+}
+
+@media (max-width: 560px) {
+  .image-generation-config-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

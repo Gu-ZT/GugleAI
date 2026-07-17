@@ -1,9 +1,19 @@
 <script setup lang="ts">
-import {ref} from "vue";
+import {onMounted, onUnmounted, ref} from "vue";
 
-defineProps<{app: any}>();
+const props = defineProps<{app: any}>();
 
 const fileInput = ref<HTMLInputElement>();
+const retryStatusCodePicker = ref<HTMLElement>();
+
+function closeRetryPicker(event: PointerEvent) {
+  if (!retryStatusCodePicker.value?.contains(event.target as Node)) {
+    props.app.retryStatusCodeMenuOpen = false;
+  }
+}
+
+onMounted(() => document.addEventListener("pointerdown", closeRetryPicker));
+onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker));
 </script>
 
 <template>
@@ -39,6 +49,101 @@ const fileInput = ref<HTMLInputElement>();
             @change="app.addImages"
         />
       </div>
+
+      <section class="image-generation-config" aria-labelledby="image-generation-config-title">
+        <strong id="image-generation-config-title">生图配置</strong>
+        <div class="image-generation-config-grid">
+          <label>
+            接口模式
+            <select v-model="app.apiMode">
+              <option value="auto">自动（多参考图走 Chat）</option>
+              <option value="images">Images 接口</option>
+              <option value="chat">Chat 接口</option>
+            </select>
+          </label>
+          <label>
+            尺寸
+            <select v-model="app.size">
+              <option value="auto">自动</option>
+              <option value="1024x1024">1024×1024</option>
+              <option value="1536x1024">1536×1024 (横)</option>
+              <option value="1024x1536">1024×1536 (竖)</option>
+            </select>
+          </label>
+          <label>
+            数量
+            <input v-model.number="app.count" type="number" min="1" max="10"/>
+          </label>
+          <label class="checkbox-row image-retry-toggle">
+            <input v-model="app.retryEnabled" type="checkbox"/>
+            <span>自动重试</span>
+          </label>
+          <div class="field">
+            <label for="image-retry-status-code-input">重试错误码</label>
+            <div ref="retryStatusCodePicker" class="combo-picker">
+              <div class="combo-control combo-control-multi" :class="{ open: app.retryStatusCodeMenuOpen, disabled: !app.retryEnabled }">
+                <div class="combo-values">
+                  <button
+                      v-for="code in app.retryStatusCodes"
+                      :key="code"
+                      type="button"
+                      class="status-code-chip"
+                      :disabled="!app.retryEnabled"
+                      @click="app.toggleRetryStatusCode(code)"
+                  >{{ code }}<span aria-hidden="true">×</span></button>
+                  <input
+                      id="image-retry-status-code-input"
+                      v-model="app.retryStatusCodeInput"
+                      :disabled="!app.retryEnabled"
+                      inputmode="numeric"
+                      maxlength="3"
+                      autocomplete="off"
+                      placeholder="输入错误码"
+                      @focus="app.retryStatusCodeMenuOpen = true"
+                      @input="app.retryStatusCodeMenuOpen = true"
+                      @keydown.enter.prevent="app.addRetryStatusCode"
+                  />
+                </div>
+                <button
+                    type="button"
+                    class="combo-toggle"
+                    aria-label="展开错误码选项"
+                    :disabled="!app.retryEnabled"
+                    @click="app.retryStatusCodeMenuOpen = !app.retryStatusCodeMenuOpen"
+                ><span class="chevron" aria-hidden="true"></span></button>
+              </div>
+              <div v-if="app.retryStatusCodeMenuOpen && app.retryEnabled" class="combo-menu">
+                <div
+                    v-for="code in app.filteredRetryStatusCodeOptions"
+                    :key="code"
+                    class="combo-option-row"
+                    :class="{ selected: app.retryStatusCodes.includes(code) }"
+                >
+                  <label class="combo-checkbox-option">
+                    <input type="checkbox" :checked="app.retryStatusCodes.includes(code)" @change="app.toggleRetryStatusCode(code)"/>
+                    <span>{{ code }}</span>
+                  </label>
+                  <button
+                      v-if="!app.DEFAULT_RETRY_STATUS_CODE_OPTIONS.includes(code)"
+                      type="button"
+                      class="combo-remove-option"
+                      title="删除自定义选项"
+                      @click="app.removeRetryStatusCodeOption(code)"
+                  >×</button>
+                </div>
+                <button v-if="app.showRetryStatusCodeInputAction" type="button" class="combo-add" @click="app.addRetryStatusCode">
+                  <span aria-hidden="true">＋</span><span>添加并选择 {{ app.retryStatusCodeInputValue }}</span>
+                </button>
+                <p v-if="app.filteredRetryStatusCodeOptions.length === 0 && !app.showRetryStatusCodeInputAction" class="combo-empty">无匹配项</p>
+              </div>
+            </div>
+          </div>
+          <label>
+            重试次数
+            <input v-model.number="app.retryCount" :disabled="!app.retryEnabled" type="number" min="1" max="20"/>
+          </label>
+        </div>
+      </section>
 
       <div class="actions">
         <span class="hint">{{ app.hintText }}</span>
