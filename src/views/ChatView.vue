@@ -86,6 +86,14 @@ function saveRename() {
         <div class="chat-composer">
           <a-textarea v-model="app.chatDraft" :auto-size="{ minRows: 4, maxRows: 8 }" placeholder="输入消息..." @keydown.ctrl.enter="app.sendChatMessage"/>
           <div class="chat-actions">
+            <div class="action-agent-picker">
+              <span class="field-label">智能体</span>
+              <a-select
+                  v-model="app.selectedChatAgentId"
+                  :options="app.chatAgentSelectOptions"
+                  :disabled="app.chatLoading || app.chatAgentSelectOptions.length === 0"
+              />
+            </div>
             <div class="action-model-picker">
               <span class="field-label">模型</span>
               <a-select

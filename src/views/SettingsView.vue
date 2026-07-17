@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {RouterLink, RouterView} from "vue-router";
-import {IconFile, IconRobot, IconSettings} from "@arco-design/web-vue/es/icon";
+import {IconFile, IconRobot, IconRobotAdd, IconSettings} from "@arco-design/web-vue/es/icon";
 
 defineProps<{app: any}>();
 </script>
@@ -17,6 +17,9 @@ defineProps<{app: any}>();
       <aside class="settings-subnav" aria-label="设置分类">
         <RouterLink :to="{name: 'settings-models'}" class="settings-subnav-link">
           <IconRobot aria-hidden="true"/><span>模型设置</span>
+        </RouterLink>
+        <RouterLink :to="{name: 'settings-agents'}" class="settings-subnav-link">
+          <IconRobotAdd aria-hidden="true"/><span>智能体设置</span>
         </RouterLink>
         <RouterLink :to="{name: 'settings-general'}" class="settings-subnav-link">
           <IconSettings aria-hidden="true"/><span>通用设置</span>

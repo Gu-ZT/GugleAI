@@ -1,5 +1,14 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::Serialize;
 use tauri::Manager;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemInfo {
+    system: String,
+    arch: String,
+    username: String,
+}
 
 #[tauri::command]
 fn save_file(path: String, base64_data: String) -> Result<(), String> {
@@ -61,6 +70,18 @@ fn get_system_proxy() -> Option<String> {
     None
 }
 
+#[tauri::command]
+fn get_system_info() -> SystemInfo {
+    let username = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "未知".to_string());
+    SystemInfo {
+        system: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        username,
+    }
+}
+
 #[cfg(windows)]
 fn windows_registry_proxy() -> Option<String> {
     use winreg::enums::HKEY_CURRENT_USER;
@@ -102,7 +123,8 @@ pub fn run() {
             save_file,
             append_log,
             show_log_file,
-            get_system_proxy
+            get_system_proxy,
+            get_system_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

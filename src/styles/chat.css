@@ -299,6 +299,19 @@
   gap: 8px;
 }
 
+.action-agent-picker {
+  display: flex;
+  min-width: min(220px, 100%);
+  flex: 0 1 260px;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-agent-picker .arco-select {
+  min-width: 0;
+  flex: 1;
+}
+
 .chat-send-button {
   min-width: 100px;
 }

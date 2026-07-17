@@ -16,6 +16,8 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 - **Providers and models**: add, name, and edit providers directly in the Model Settings detail pane, each with its own API endpoint, key, and model list; navigating with unsaved changes prompts you to save, discard, or keep editing; models support an ID, optional display name and description, image-model flag, and context length through a dedicated modal
 - **Organized settings**: the Settings page has nested routes for Model Settings, General Settings, and full-size Logs; entering Settings from the main navigation always opens Model Settings, which adds a secondary provider sidebar
 - **Themes and UI**: choose Light, Dark, or Follow System under General Settings; controls and colors use Arco Design throughout and update live through its theme tokens
+- **Agent settings**: edit the Infinite Canvas prompt-generation system prompt, manage chat agents, and switch agents from the Chat composer; the default assistant is editable and custom agents can be added or removed
+- **Prompt variables**: agent system prompts support `{{date}}`, `{{time}}`, `{{datetime}}`, `{{system}}`, `{{arch}}`, `{{language}}`, `{{model_name}}`, and `{{username}}`, resolved from the current environment immediately before each request
 - **Text chat**: use `/chat/completions` across persistent multiple conversations with create, rename, delete, and per-message copy actions; assistant messages show the actual model, while first exchanges can generate titles asynchronously with a chosen model or title generation can be disabled
 - **Grouped model selection**: Image Generation, Chat, conversation titles, and Infinite Canvas nodes select models grouped by provider, show the selected provider in a tag, and automatically use that provider's endpoint and key
 - **Infinite canvas**: pan and zoom freely; text generation creates a connected text child; generation reads only directly connected upstream nodes, adding text nodes to the prompt and image nodes as references; each reference node stores one image and hides irrelevant model settings
@@ -38,7 +40,7 @@ Grab the installer for your platform from the [Releases](../../releases) page. W
 
 Prerequisites: [Node.js 20.19+](https://nodejs.org/), [pnpm](https://pnpm.io/), [Rust](https://www.rust-lang.org/).
 
-The frontend uses Vue Router hash history for `/image`, `/chat`, `/canvas`, and `/settings`, with nested `/settings/models`, `/settings/general`, and `/settings/logs` routes. Page components live under `src/views/`, including setting subpages under `src/views/settings/`. Model editing, unsaved-change prompts, and preview overlays live under `src/components/modals/`. Arco Design components are resolved on demand through `unplugin-vue-components`.
+The frontend uses Vue Router hash history for `/image`, `/chat`, `/canvas`, and `/settings`, with nested `/settings/models`, `/settings/agents`, `/settings/general`, and `/settings/logs` routes. Page components live under `src/views/`, including setting subpages under `src/views/settings/`. Model editing, unsaved-change prompts, and preview overlays live under `src/components/modals/`. Arco Design components are resolved on demand through `unplugin-vue-components`.
 
 `src/App.vue` now contains only the application shell, router outlet, and global overlays. `src/composables/controller/index.ts` is a composition root that wires dependencies together and exposes the shared view model. Responsibilities are split as follows:
 
@@ -65,7 +67,7 @@ pnpm tauri build
 
 1. In Model Settings, add a provider, edit its name, endpoint, and key directly in the detail pane, save it, then maintain its models through the model modal
 2. Choose models grouped by provider in Image Generation, Chat, and Infinite Canvas; manually expand Advanced settings for image request options
-3. Create and rename persistent conversations in Chat; under General Settings, switch between Light, Dark, and Follow System, then choose a title model, use the active chat model, or disable title generation
+3. Create and rename persistent conversations in Chat and select an agent from the composer; Agent Settings lets you edit the default assistant, add custom agents, and configure Canvas prompt generation
 4. In Infinite Canvas, text generation creates a new text child; each image-bearing node stores one replaceable reference, and multiple reference nodes can feed a new empty image node before generation
 5. Image previews remain available; double-click to enlarge, or right-click to copy the image or prompt, use it as a reference, save it, delete it, or clear the full preview history
 

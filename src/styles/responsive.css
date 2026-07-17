@@ -18,6 +18,11 @@
     gap: 10px;
   }
 
+  .chat-agent-settings-layout {
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 10px;
+  }
+
   .provider-editor-fields {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -33,6 +38,14 @@
 
   .settings-form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prompt-variable-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prompt-variable-row:nth-child(odd) {
+    border-right: 0;
   }
 
   .image-generation-config-grid {
@@ -70,6 +83,7 @@
   }
 
   .provider-settings-layout,
+  .chat-agent-settings-layout,
   .chat-layout {
     grid-template-columns: 124px minmax(0, 1fr);
   }

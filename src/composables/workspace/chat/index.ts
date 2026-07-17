@@ -16,6 +16,7 @@ interface ChatWorkspaceOptions {
   log: Log;
   errorMessage(value: unknown): string;
   formatErrorDetails(value: unknown): string;
+  resolveSystemPrompt(modelName: string): Promise<string>;
 }
 
 export function useChatWorkspace(options: ChatWorkspaceOptions) {
@@ -42,13 +43,19 @@ export function useChatWorkspace(options: ChatWorkspaceOptions) {
     const taskId = options.nextTaskId();
     await session.send({
       modelLabel: resolvedModelLabel(selectedModel),
-      request: ({messages, signal}) => options.transport.requestTextCompletion(
-          messages.map((message) => ({role: message.role, content: message.content})),
-          signal,
-          taskId,
-          selectedModel.model.id,
-          connectionFor(selectedModel)
-      ),
+      request: async ({messages, signal}) => {
+        const systemPrompt = await options.resolveSystemPrompt(selectedModel.model.id);
+        return options.transport.requestTextCompletion(
+            [
+              ...(systemPrompt.trim() ? [{role: "system", content: systemPrompt}] : []),
+              ...messages.map((message) => ({role: message.role, content: message.content})),
+            ],
+            signal,
+            taskId,
+            selectedModel.model.id,
+            connectionFor(selectedModel)
+        );
+      },
       onStart: (messageCount) => options.log(
           "INFO",
           `任务=#${taskId} 开始文字聊天: 模型=${selectedModel.model.id} 消息数=${messageCount}`

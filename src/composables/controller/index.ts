@@ -10,6 +10,7 @@ import {
 import {workspaceModeFromRoute, type WorkspaceMode} from "../../router";
 import {createGenerationTransport} from "../../services/transport";
 import {useAppSettings} from "../settings/app";
+import {useAgentSettings} from "../settings/agents";
 import {useCanvasWorkspace} from "../workspace/canvas";
 import {useChatWorkspace} from "../workspace/chat";
 import {useGenerationSettings} from "../settings/generation";
@@ -48,6 +49,7 @@ export function useAppController() {
     proxyForLog: systemFetch.proxyForLog,
   });
   const settings = useAppSettings({providers, generation, themeMode});
+  const agents = useAgentSettings();
   let taskSequence = 0;
   const nextTaskId = () => ++taskSequence;
 
@@ -83,6 +85,7 @@ export function useAppController() {
     log: logger.log,
     errorMessage: logger.errorMessage,
     formatErrorDetails: logger.formatErrorDetails,
+    resolveSystemPrompt: agents.resolveChatSystemPrompt,
   });
   const canvas = useCanvasWorkspace({
     graph,
@@ -95,6 +98,7 @@ export function useAppController() {
     transport,
     nextTaskId,
     errorMessage: logger.errorMessage,
+    resolvePromptSystemPrompt: agents.resolveCanvasPromptSystemPrompt,
   });
   const updater = useUpdater(systemFetch.fetch, logger.log, error);
   const appBusy = computed(
@@ -120,6 +124,7 @@ export function useAppController() {
     ...providers,
     ...generation,
     ...settings,
+    ...agents,
     themeMode,
     ...updater,
     ...logger,

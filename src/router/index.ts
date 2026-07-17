@@ -5,6 +5,7 @@ import CanvasView from "../views/CanvasView.vue";
 import SettingsView from "../views/SettingsView.vue";
 import ModelSettingsView from "../views/settings/ModelSettingsView.vue";
 import GeneralSettingsView from "../views/settings/GeneralSettingsView.vue";
+import AgentSettingsView from "../views/settings/AgentSettingsView.vue";
 import LogSettingsView from "../views/settings/LogSettingsView.vue";
 
 export type WorkspaceMode = "image" | "chat" | "canvas" | "settings";
@@ -23,6 +24,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       {path: "", redirect: {name: "settings-models"}},
       {path: "models", name: "settings-models", component: ModelSettingsView},
+      {path: "agents", name: "settings-agents", component: AgentSettingsView},
       {path: "general", name: "settings-general", component: GeneralSettingsView},
       {path: "logs", name: "settings-logs", component: LogSettingsView},
     ],

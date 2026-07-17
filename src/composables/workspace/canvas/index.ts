@@ -26,6 +26,7 @@ interface CanvasWorkspaceOptions {
   transport: GenerationTransport;
   nextTaskId(): number;
   errorMessage(value: unknown): string;
+  resolvePromptSystemPrompt(modelName: string): Promise<string>;
 }
 
 export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
@@ -136,8 +137,12 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     for (const asset of options.graph.referenceAssets(node)) {
       content.push({type: "image_url", image_url: {url: await assetDataUrl(asset)}});
     }
+    const systemPrompt = await options.resolvePromptSystemPrompt(node.data.model);
     return options.transport.requestTextCompletion(
-        [{role: "user", content}],
+        [
+          ...(systemPrompt.trim() ? [{role: "system", content: systemPrompt}] : []),
+          {role: "user", content},
+        ],
         signal,
         taskId,
         node.data.model,
