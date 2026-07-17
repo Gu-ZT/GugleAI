@@ -3543,6 +3543,7 @@ label:not(.arco-checkbox):not(.arco-radio) {
   display: flex;
   min-height: 100%;
   flex-direction: column;
+  padding-right: 28px;
 }
 
 .provider-detail-header,
@@ -4569,7 +4570,7 @@ label:not(.arco-checkbox):not(.arco-radio) {
   min-height: 100%;
   flex-direction: column;
   gap: 14px;
-  padding: 10px 2px;
+  padding: 10px 28px 10px 2px;
 }
 
 .chat-empty {
