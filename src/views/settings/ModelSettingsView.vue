@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {IconDelete, IconPlus} from "@arco-design/web-vue/es/icon";
+
 defineProps<{app: any}>();
 </script>
 
@@ -8,10 +10,10 @@ defineProps<{app: any}>();
     <div class="provider-settings-layout">
       <aside class="provider-sidebar" aria-label="提供商列表">
         <a-scrollbar outer-class="provider-list" class="provider-list-container" :disable-horizontal="true">
-          <button
+          <a-button
               v-for="provider in app.providerList"
               :key="provider.id"
-              type="button"
+              type="text"
               class="provider-list-item"
               :class="{ active: app.selectedProviderId === provider.id }"
               :title="provider.name"
@@ -20,9 +22,9 @@ defineProps<{app: any}>();
             <span>{{ provider.name }}</span>
             <small v-if="app.providerDraftIsNew && app.selectedProviderId === provider.id">未保存</small>
             <small v-else>{{ provider.models.length }} 个模型</small>
-          </button>
+          </a-button>
         </a-scrollbar>
-        <button type="button" class="provider-add-button" @click="app.addProviderDraft">＋ 添加提供商</button>
+        <a-button type="outline" class="provider-add-button" @click="app.addProviderDraft"><template #icon><IconPlus/></template>添加提供商</a-button>
       </aside>
 
       <a-scrollbar
@@ -34,19 +36,19 @@ defineProps<{app: any}>();
         <form class="provider-editor" @submit.prevent="app.saveConnectionDraft">
           <div class="provider-detail-header">
             <h3>{{ app.providerDraftIsNew ? '添加提供商' : '提供商信息' }}</h3>
-            <button
+            <a-button
                 v-if="!app.providerDraftIsNew"
-                type="button"
+                status="danger"
                 class="danger-action"
                 :disabled="app.connectionProfiles.length <= 1 || app.hasUnsavedProviderChanges"
                 @click="app.removeConnection(app.selectedProvider)"
-            >删除</button>
+            ><template #icon><IconDelete/></template>删除</a-button>
           </div>
 
           <div class="provider-editor-fields">
             <label for="provider-name-input">
               提供商名称
-              <input
+              <a-input
                   id="provider-name-input"
                   v-model="app.connectionDraftName"
                   autocomplete="off"
@@ -56,7 +58,7 @@ defineProps<{app: any}>();
             </label>
             <label for="provider-endpoint-input">
               API 地址
-              <input
+              <a-input
                   id="provider-endpoint-input"
                   v-model="app.connectionDraftEndpoint"
                   autocomplete="off"
@@ -66,10 +68,9 @@ defineProps<{app: any}>();
             </label>
             <label for="provider-api-key-input">
               API Key（可选）
-              <input
+              <a-input-password
                   id="provider-api-key-input"
                   v-model="app.connectionDraftApiKey"
-                  type="password"
                   autocomplete="new-password"
                   placeholder="sk-..."
                   @input="app.connectionDraftError = ''"
@@ -80,13 +81,12 @@ defineProps<{app: any}>();
 
           <div class="provider-model-toolbar">
             <strong>模型列表</strong>
-            <button
-                type="button"
+            <a-button
                 class="secondary-action"
                 :disabled="app.providerDraftIsNew"
                 :title="app.providerDraftIsNew ? '请先保存提供商' : '添加模型'"
                 @click="app.openModelModal(app.selectedProvider.id)"
-            >＋ 添加模型</button>
+            ><template #icon><IconPlus/></template>添加模型</a-button>
           </div>
 
           <div v-if="app.selectedProvider.models.length" class="provider-model-list">
@@ -101,16 +101,16 @@ defineProps<{app: any}>();
                 </div>
               </div>
               <div class="provider-model-actions">
-                <button type="button" class="secondary-action" @click="app.openModelModal(app.selectedProvider.id, providerModel)">编辑</button>
-                <button type="button" class="danger-action" @click="app.removeProviderModel(app.selectedProvider.id, providerModel.id)">删除</button>
+                <a-button class="secondary-action" @click="app.openModelModal(app.selectedProvider.id, providerModel)">编辑</a-button>
+                <a-button status="danger" class="danger-action" @click="app.removeProviderModel(app.selectedProvider.id, providerModel.id)">删除</a-button>
               </div>
             </article>
           </div>
           <div v-else class="provider-model-empty">暂无模型</div>
 
           <div v-if="app.hasUnsavedProviderChanges" class="provider-draft-actions">
-            <button type="button" class="modal-cancel" @click="app.cancelConnectionDraft">取消更改</button>
-            <button type="submit" class="modal-save">保存更改</button>
+            <a-button class="modal-cancel" @click="app.cancelConnectionDraft">取消更改</a-button>
+            <a-button type="primary" html-type="submit" class="modal-save">保存更改</a-button>
           </div>
         </form>
       </a-scrollbar>

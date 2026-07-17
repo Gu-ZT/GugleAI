@@ -6,7 +6,7 @@ defineProps<{app: any}>();
   <div class="settings-section settings-log-section">
     <div class="settings-section-heading">
       <h2>日志</h2>
-      <button class="log-btn" @click="app.openLogFile">打开日志文件</button>
+      <a-button class="log-btn" @click="app.openLogFile">打开日志文件</a-button>
     </div>
     <p v-if="app.logFilePath" class="log-path settings-log-path">{{ app.logFilePath }}</p>
     <div class="log-panel settings-log-panel">

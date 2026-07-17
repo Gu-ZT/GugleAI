@@ -1,6 +1,12 @@
+<div align="center">
+
+<img src="public/icon.png" style="width: 256px; height: 256px" alt="Icon">
+
 # GugleAI
 
 English | [简体中文](README.md)
+
+</div>
 
 A desktop image generation client built with Tauri 2 + Vue 3, working with the OpenAI Images API (e.g. `gpt-image-2`) and compatible third-party relay services.
 
@@ -9,6 +15,7 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 - **Multiple workspaces**: switch between image generation, text chat, and the infinite canvas from a compact left navigation rail; each workspace is now a separate Vue Router page
 - **Providers and models**: add, name, and edit providers directly in the Model Settings detail pane, each with its own API endpoint, key, and model list; navigating with unsaved changes prompts you to save, discard, or keep editing; models support an ID, optional display name and description, image-model flag, and context length through a dedicated modal
 - **Organized settings**: the Settings page has nested routes for Model Settings, General Settings, and full-size Logs; entering Settings from the main navigation always opens Model Settings, which adds a secondary provider sidebar
+- **Themes and UI**: choose Light, Dark, or Follow System under General Settings; controls and colors use Arco Design throughout and update live through its theme tokens
 - **Text chat**: use `/chat/completions` across persistent multiple conversations with create, rename, delete, and per-message copy actions; assistant messages show the actual model, while first exchanges can generate titles asynchronously with a chosen model or title generation can be disabled
 - **Grouped model selection**: Image Generation, Chat, conversation titles, and Infinite Canvas nodes select models grouped by provider, show the selected provider in a tag, and automatically use that provider's endpoint and key
 - **Infinite canvas**: pan and zoom freely; text generation creates a connected text child, while uploaded or generated image nodes are reference-only inputs that can feed a new empty image node and produce multiple image children
@@ -48,7 +55,7 @@ pnpm tauri build
 
 1. In Model Settings, add a provider, edit its name, endpoint, and key directly in the detail pane, save it, then maintain its models through the model modal
 2. Choose models grouped by provider in Image Generation, Chat, and Infinite Canvas; manually expand Advanced settings for image request options
-3. Create and rename persistent conversations in Chat; under General Settings, choose a title model, use the active chat model, or disable title generation
+3. Create and rename persistent conversations in Chat; under General Settings, switch between Light, Dark, and Follow System, then choose a title model, use the active chat model, or disable title generation
 4. In Infinite Canvas, text generation creates a new text child, and image-bearing nodes must be connected as references to a new empty image node before generation
 5. Image previews remain available; double-click to enlarge, or right-click to copy the image or prompt, use it as a reference, save it, delete it, or clear the full preview history
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {onMounted, onUnmounted, ref} from "vue";
+import {IconClose, IconDelete, IconPlus, IconStop} from "@arco-design/web-vue/es/icon";
 
 const props = defineProps<{app: any}>();
 
@@ -24,12 +25,12 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
         <span>{{ app.historyLoading ? "正在加载预览..." : `预览图片 ${app.results.length} 张` }}</span>
         <span v-if="app.loading" class="preview-status">{{ app.stopping ? "正在停止..." : "正在生成..." }}</span>
         <span v-if="app.previewNotice" class="preview-notice" role="status">{{ app.previewNotice }}</span>
-        <button
-            type="button"
+        <a-button
+            size="mini"
             class="clear-results"
             :disabled="app.historyLoading || app.results.length === 0"
             @click="app.clearResultHistory"
-        >清空预览</button>
+        ><template #icon><IconDelete/></template>清空预览</a-button>
       </div>
       <a-scrollbar outer-class="preview-scroll" class="preview-scroll-container">
         <div v-if="app.results.length" class="results">
@@ -41,8 +42,8 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
                 @contextmenu.prevent="app.openResultContextMenu($event, img)"
             />
             <div class="result-actions">
-              <button type="button" @click="app.saveImage(img)">保存</button>
-              <button type="button" class="delete-result" @click="app.deleteResultImage(img)">删除</button>
+              <a-button size="mini" @click="app.saveImage(img)">保存</a-button>
+              <a-button size="mini" status="danger" class="delete-result" @click="app.deleteResultImage(img)">删除</a-button>
             </div>
           </div>
         </div>
@@ -53,43 +54,39 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
     </section>
 
     <section class="image-generation-config" aria-labelledby="image-generation-config-title">
-      <button
+      <a-button
           id="image-generation-config-title"
-          type="button"
+          type="text"
           class="advanced-config-toggle"
           :aria-expanded="advancedOpen"
           @click="advancedOpen = !advancedOpen"
       >
         <span>高级配置</span>
         <span class="chevron" :class="{ open: advancedOpen }" aria-hidden="true"></span>
-      </button>
+      </a-button>
       <div v-if="advancedOpen" class="image-generation-config-grid">
-        <label>
-          接口模式
-          <select v-model="app.apiMode">
-            <option value="auto">自动（多参考图走 Chat）</option>
-            <option value="images">Images 接口</option>
-            <option value="chat">Chat 接口</option>
-          </select>
-        </label>
-        <label class="checkbox-row image-retry-toggle">
-          <input v-model="app.retryEnabled" type="checkbox"/>
-          <span>自动重试</span>
-        </label>
+        <div class="field">
+          <span class="field-label">接口模式</span>
+          <a-select v-model="app.apiMode">
+            <a-option value="auto">自动（多参考图走 Chat）</a-option>
+            <a-option value="images">Images 接口</a-option>
+            <a-option value="chat">Chat 接口</a-option>
+          </a-select>
+        </div>
+        <a-checkbox v-model="app.retryEnabled" class="checkbox-row image-retry-toggle">自动重试</a-checkbox>
         <div class="field">
           <label for="image-retry-status-code-input">重试错误码</label>
           <div ref="retryStatusCodePicker" class="combo-picker">
             <div class="combo-control combo-control-multi" :class="{ open: app.retryStatusCodeMenuOpen, disabled: !app.retryEnabled }">
               <div class="combo-values">
-                <button
+                <a-tag
                     v-for="code in app.retryStatusCodes"
                     :key="code"
-                    type="button"
+                    :closable="app.retryEnabled"
                     class="status-code-chip"
-                    :disabled="!app.retryEnabled"
-                    @click="app.toggleRetryStatusCode(code)"
-                >{{ code }}<span aria-hidden="true">×</span></button>
-                <input
+                    @close="app.toggleRetryStatusCode(code)"
+                >{{ code }}</a-tag>
+                <a-input
                     id="image-retry-status-code-input"
                     v-model="app.retryStatusCodeInput"
                     :disabled="!app.retryEnabled"
@@ -102,13 +99,14 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
                     @keydown.enter.prevent="app.addRetryStatusCode"
                 />
               </div>
-              <button
-                  type="button"
+              <a-button
+                  type="text"
+                  size="mini"
                   class="combo-toggle"
                   aria-label="展开错误码选项"
                   :disabled="!app.retryEnabled"
                   @click="app.retryStatusCodeMenuOpen = !app.retryStatusCodeMenuOpen"
-              ><span class="chevron" aria-hidden="true"></span></button>
+              ><span class="chevron" aria-hidden="true"></span></a-button>
             </div>
             <a-scrollbar
                 v-if="app.retryStatusCodeMenuOpen && app.retryEnabled"
@@ -122,28 +120,31 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
                   class="combo-option-row"
                   :class="{ selected: app.retryStatusCodes.includes(code) }"
               >
-                <label class="combo-checkbox-option">
-                  <input type="checkbox" :checked="app.retryStatusCodes.includes(code)" @change="app.toggleRetryStatusCode(code)"/>
-                  <span>{{ code }}</span>
-                </label>
-                <button
+                <a-checkbox
+                    class="combo-checkbox-option"
+                    :model-value="app.retryStatusCodes.includes(code)"
+                    @change="app.toggleRetryStatusCode(code)"
+                >{{ code }}</a-checkbox>
+                <a-button
                     v-if="!app.DEFAULT_RETRY_STATUS_CODE_OPTIONS.includes(code)"
-                    type="button"
+                    type="text"
+                    size="mini"
+                    shape="circle"
                     class="combo-remove-option"
                     title="删除自定义选项"
                     @click="app.removeRetryStatusCodeOption(code)"
-                >×</button>
+                ><IconClose/></a-button>
               </div>
-              <button v-if="app.showRetryStatusCodeInputAction" type="button" class="combo-add" @click="app.addRetryStatusCode">
+              <a-button v-if="app.showRetryStatusCodeInputAction" type="text" class="combo-add" @click="app.addRetryStatusCode">
                 <span aria-hidden="true">＋</span><span>添加并选择 {{ app.retryStatusCodeInputValue }}</span>
-              </button>
+              </a-button>
               <p v-if="app.filteredRetryStatusCodeOptions.length === 0 && !app.showRetryStatusCodeInputAction" class="combo-empty">无匹配项</p>
             </a-scrollbar>
           </div>
         </div>
         <label>
           重试次数
-          <input v-model.number="app.retryCount" :disabled="!app.retryEnabled" type="number" min="1" max="20"/>
+          <a-input-number v-model="app.retryCount" :disabled="!app.retryEnabled" :min="1" :max="20"/>
         </label>
       </div>
     </section>
@@ -151,9 +152,10 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
     <div class="ref-images">
       <div v-for="(img, index) in app.refImages" :key="img.previewUrl" class="ref-thumb">
         <img :src="img.previewUrl" :alt="img.file.name" :title="img.file.name"/>
-        <button class="remove" @click="app.removeImage(index)">×</button>
+        <a-button type="text" shape="circle" class="remove" title="移除参考图" @click="app.removeImage(index)"><IconClose/></a-button>
       </div>
-      <button
+      <a-button
+          type="outline"
           class="add-ref"
           :class="{ 'drag-over': app.dragOver }"
           title="添加参考图（可拖拽文件或 Ctrl+V 粘贴）"
@@ -161,7 +163,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
           @dragover.prevent="app.dragOver = true"
           @dragleave="app.dragOver = false"
           @drop.prevent="app.onDrop"
-      >＋</button>
+      ><IconPlus/></a-button>
       <input
           ref="fileInput"
           type="file"
@@ -174,19 +176,19 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
 
     <div class="image-mode-hint">{{ app.hintText }}</div>
 
-    <textarea
+    <a-textarea
         v-model="app.prompt"
         class="image-prompt-input"
         rows="4"
         placeholder="描述你想生成的图片..."
         @keydown.ctrl.enter="app.generate"
-    ></textarea>
+    />
 
     <p v-if="app.error" class="error">{{ app.error }}</p>
 
     <div class="image-primary-options">
-      <label class="image-model-option">
-        <span>模型</span>
+      <div class="field image-model-option">
+        <span class="field-label">模型</span>
         <a-select
             v-model="app.imageModelSelection"
             :options="app.imageModelSelectOptions"
@@ -198,43 +200,43 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
             <a-tag v-if="data.providerName" size="small" class="model-provider-tag">{{ data.providerName }}</a-tag>
           </template>
         </a-select>
-      </label>
-      <label class="image-size-option">
-        尺寸
-        <select v-model="app.size">
-          <option value="auto">自动</option>
-          <option value="1024x1024">1024×1024</option>
-          <option value="1536x1024">1536×1024（横）</option>
-          <option value="1024x1536">1024×1536（竖）</option>
-          <option value="custom">自定义</option>
-        </select>
-      </label>
+      </div>
+      <div class="field image-size-option">
+        <span class="field-label">尺寸</span>
+        <a-select v-model="app.size">
+          <a-option value="auto">自动</a-option>
+          <a-option value="1024x1024">1024×1024</a-option>
+          <a-option value="1536x1024">1536×1024（横）</a-option>
+          <a-option value="1024x1536">1024×1536（竖）</a-option>
+          <a-option value="custom">自定义</a-option>
+        </a-select>
+      </div>
       <div v-if="app.size === 'custom'" class="custom-size-inputs" aria-label="自定义尺寸">
         <label>
           宽度
-          <input v-model.number="app.customWidth" type="number" min="1" step="1" inputmode="numeric"/>
+          <a-input-number v-model="app.customWidth" :min="1" :step="1"/>
         </label>
         <span aria-hidden="true">×</span>
         <label>
           高度
-          <input v-model.number="app.customHeight" type="number" min="1" step="1" inputmode="numeric"/>
+          <a-input-number v-model="app.customHeight" :min="1" :step="1"/>
         </label>
       </div>
       <label class="image-count-option">
         数量
-        <input v-model.number="app.count" type="number" min="1" max="10" step="1"/>
+        <a-input-number v-model="app.count" :min="1" :max="10" :step="1"/>
       </label>
-      <button
+      <a-button
           v-if="app.loading"
-          type="button"
+          status="danger"
           class="stop-generation image-generate-action"
           :disabled="app.stopping"
           @click="app.stopGeneration"
       >
-        <span class="stop-icon" aria-hidden="true"></span>
+        <template #icon><IconStop/></template>
         {{ app.stopping ? "停止中..." : "停止" }}
-      </button>
-      <button v-else class="generate image-generate-action" @click="app.generate">生成 (Ctrl+Enter)</button>
+      </a-button>
+      <a-button v-else type="primary" class="image-generate-action" @click="app.generate">生成 (Ctrl+Enter)</a-button>
     </div>
   </section>
 </template>

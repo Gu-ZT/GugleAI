@@ -20,9 +20,9 @@ defineProps<{app: any}>();
       </div>
       <p>提供商信息尚未保存。</p>
       <div class="modal-actions unsaved-changes-actions">
-        <button type="button" class="modal-cancel" @click="app.resolveUnsavedChanges('cancel')">取消切换</button>
-        <button type="button" class="modal-discard" @click="app.resolveUnsavedChanges('discard')">不保存</button>
-        <button type="button" class="modal-save" autofocus @click="app.resolveUnsavedChanges('save')">保存并继续</button>
+        <a-button class="modal-cancel" @click="app.resolveUnsavedChanges('cancel')">取消切换</a-button>
+        <a-button status="danger" class="modal-discard" @click="app.resolveUnsavedChanges('discard')">不保存</a-button>
+        <a-button type="primary" class="modal-save" autofocus @click="app.resolveUnsavedChanges('save')">保存并继续</a-button>
       </div>
     </section>
   </div>

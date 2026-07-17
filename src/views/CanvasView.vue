@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {Handle, Position, VueFlow} from "@vue-flow/core";
+import {IconClose, IconPlus, IconStop} from "@arco-design/web-vue/es/icon";
 import "@vue-flow/core/dist/style.css";
 import "@vue-flow/core/dist/theme-default.css";
 
@@ -38,11 +39,11 @@ defineProps<{app: any}>();
             <Handle type="target" :position="Position.Left" />
             <div class="canvas-node-header">
               <strong>{{ data.title }}</strong>
-              <button type="button" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)">×</button>
+              <a-button type="text" shape="circle" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)"><IconClose/></a-button>
             </div>
             <div class="canvas-node-config nodrag">
-              <label>
-                模型
+              <div class="canvas-node-model-field">
+                <span>模型</span>
                 <a-select
                     :model-value="app.canvasNodeModelSelection(data)"
                     :options="app.textModelSelectOptions"
@@ -54,15 +55,15 @@ defineProps<{app: any}>();
                     <a-tag v-if="selectedOption.providerName" size="small" class="model-provider-tag">{{ selectedOption.providerName }}</a-tag>
                   </template>
                 </a-select>
-              </label>
+              </div>
             </div>
-            <textarea v-model="data.text" class="nodrag" rows="5" placeholder="输入文字内容"></textarea>
+            <a-textarea v-model="data.text" class="nodrag" :auto-size="{ minRows: 5, maxRows: 10 }" placeholder="输入文字内容"/>
             <p v-if="data.error" class="canvas-node-error nodrag">{{ data.error }}</p>
             <div class="canvas-node-actions nodrag">
               <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
               <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
-              <button v-if="data.status === 'running'" type="button" class="node-stop" @click.stop="app.stopCanvasNode(id)">停止</button>
-              <button v-else type="button" class="node-generate" @click.stop="app.generateCanvasText(id)">生成文字</button>
+              <a-button v-if="data.status === 'running'" status="danger" @click.stop="app.stopCanvasNode(id)"><template #icon><IconStop/></template>停止</a-button>
+              <a-button v-else type="primary" @click.stop="app.generateCanvasText(id)">生成文字</a-button>
             </div>
             <Handle type="source" :position="Position.Right" />
           </div>
@@ -73,11 +74,11 @@ defineProps<{app: any}>();
             <Handle type="target" :position="Position.Left" />
             <div class="canvas-node-header">
               <strong>{{ data.title }}</strong>
-              <button type="button" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)">×</button>
+              <a-button type="text" shape="circle" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)"><IconClose/></a-button>
             </div>
             <div class="canvas-node-config nodrag">
-              <label>
-                模型
+              <div class="canvas-node-model-field">
+                <span>模型</span>
                 <a-select
                     :model-value="app.canvasNodeModelSelection(data)"
                     :options="app.imageModelSelectOptions"
@@ -89,32 +90,32 @@ defineProps<{app: any}>();
                     <a-tag v-if="selectedOption.providerName" size="small" class="model-provider-tag">{{ selectedOption.providerName }}</a-tag>
                   </template>
                 </a-select>
-              </label>
+              </div>
             </div>
             <div v-if="data.references.length" class="canvas-node-images nodrag">
               <div v-for="asset in data.references" :key="asset.id" class="canvas-node-image">
                 <img :src="asset.url" :alt="asset.name" :title="asset.name"/>
-                <button v-if="!data.readOnly" type="button" @click.stop="app.removeCanvasReference(id, asset.id)">×</button>
+                <a-button v-if="!data.readOnly" type="text" shape="circle" title="移除图片" @click.stop="app.removeCanvasReference(id, asset.id)"><IconClose/></a-button>
               </div>
             </div>
             <p v-else-if="data.readOnly" class="canvas-empty-image nodrag">暂无图片</p>
             <template v-if="!data.readOnly && data.references.length === 0">
-              <textarea v-model="data.prompt" class="nodrag" rows="3" placeholder="描述要生成的图片"></textarea>
+              <a-textarea v-model="data.prompt" class="nodrag" :auto-size="{ minRows: 3, maxRows: 8 }" placeholder="描述要生成的图片"/>
               <div class="canvas-image-options nodrag">
-                <button type="button" class="secondary-action" @click.stop="app.openCanvasImagePicker(id)">添加参考图</button>
+                <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconPlus/></template>添加参考图</a-button>
                 <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="app.onCanvasImageFiles(id, $event)"/>
-                <label>数量 <input v-model.number="data.count" type="number" min="1" max="10" @click.stop/></label>
+                <label>数量 <a-input-number v-model="data.count" :min="1" :max="10" @click.stop/></label>
               </div>
               <div class="canvas-node-actions nodrag">
                 <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
                 <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
-                <button v-if="data.status === 'running'" type="button" class="node-stop" @click.stop="app.stopCanvasNode(id)">停止</button>
-                <button v-else type="button" class="node-generate" @click.stop="app.generateCanvasImage(id)">生成图片</button>
+                <a-button v-if="data.status === 'running'" status="danger" @click.stop="app.stopCanvasNode(id)"><template #icon><IconStop/></template>停止</a-button>
+                <a-button v-else type="primary" @click.stop="app.generateCanvasImage(id)">生成图片</a-button>
               </div>
             </template>
             <div v-else-if="!data.readOnly" class="canvas-reference-actions nodrag">
               <span>参考图节点</span>
-              <button type="button" class="secondary-action" @click.stop="app.openCanvasImagePicker(id)">添加图片</button>
+              <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconPlus/></template>添加图片</a-button>
               <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="app.onCanvasImageFiles(id, $event)"/>
             </div>
             <Handle type="source" :position="Position.Right" />

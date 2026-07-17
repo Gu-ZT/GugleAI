@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ref} from "vue";
-import {IconCheck, IconCopy, IconDelete, IconEdit, IconPlus} from "@arco-design/web-vue/es/icon";
+import {IconCheck, IconCopy, IconDelete, IconEdit, IconPlus, IconStop} from "@arco-design/web-vue/es/icon";
 
 const props = defineProps<{app: any}>();
 const editingConversationId = ref("");
@@ -23,9 +23,9 @@ function saveRename() {
   <section class="chat-workspace">
     <div class="chat-layout">
       <aside class="chat-conversation-sidebar" aria-label="聊天记录">
-        <button type="button" class="new-conversation-button" :disabled="app.chatLoading" @click="app.createChatConversation">
+        <a-button type="outline" class="new-conversation-button" :disabled="app.chatLoading" @click="app.createChatConversation">
           <IconPlus aria-hidden="true"/><span>新建对话</span>
-        </button>
+        </a-button>
         <a-scrollbar outer-class="conversation-list" class="conversation-list-container" :disable-horizontal="true">
           <article
               v-for="conversation in app.chatConversations"
@@ -34,17 +34,17 @@ function saveRename() {
               :class="{ active: app.activeChatConversationId === conversation.id }"
           >
             <form v-if="editingConversationId === conversation.id" class="conversation-rename" @submit.prevent="saveRename">
-              <input v-model="editingTitle" autofocus maxlength="80" @keydown.esc="editingConversationId = ''"/>
-              <button type="submit" title="保存名称" aria-label="保存名称"><IconCheck/></button>
+              <a-input v-model="editingTitle" autofocus :max-length="80" @keydown.esc="editingConversationId = ''"/>
+              <a-button type="text" html-type="submit" title="保存名称" aria-label="保存名称"><IconCheck/></a-button>
             </form>
             <template v-else>
-              <button type="button" class="conversation-select" :title="conversation.title" @click="app.selectChatConversation(conversation.id)" @dblclick="startRename(conversation)">
+              <a-button type="text" class="conversation-select" :title="conversation.title" @click="app.selectChatConversation(conversation.id)" @dblclick="startRename(conversation)">
                 <span>{{ conversation.title }}</span>
                 <small>{{ conversation.messages.length }} 条消息</small>
-              </button>
+              </a-button>
               <div class="conversation-item-actions">
-                <button type="button" title="重命名" aria-label="重命名" @click="startRename(conversation)"><IconEdit/></button>
-                <button type="button" title="删除对话" aria-label="删除对话" :disabled="app.chatLoading" @click="app.deleteChatConversation(conversation.id)"><IconDelete/></button>
+                <a-button type="text" shape="circle" title="重命名" aria-label="重命名" @click="startRename(conversation)"><IconEdit/></a-button>
+                <a-button type="text" shape="circle" status="danger" title="删除对话" aria-label="删除对话" :disabled="app.chatLoading" @click="app.deleteChatConversation(conversation.id)"><IconDelete/></a-button>
               </div>
             </template>
           </article>
@@ -64,8 +64,9 @@ function saveRename() {
             <article v-for="message in app.chatMessages" :key="message.id" class="chat-message" :class="message.role">
               <div class="chat-message-header">
                 <div class="chat-role">{{ message.role === 'user' ? '你' : '助手' }}</div>
-                <button
-                    type="button"
+                <a-button
+                    type="text"
+                    shape="circle"
                     class="chat-copy-button"
                     :title="app.chatCopiedMessageId === message.id ? '已复制' : '复制消息'"
                     :aria-label="app.chatCopiedMessageId === message.id ? '已复制' : '复制消息'"
@@ -73,7 +74,7 @@ function saveRename() {
                 >
                   <IconCheck v-if="app.chatCopiedMessageId === message.id"/>
                   <IconCopy v-else/>
-                </button>
+                </a-button>
               </div>
               <p>{{ message.content }}</p>
               <div v-if="message.modelLabel" class="chat-message-model">{{ message.modelLabel }}</div>
@@ -83,10 +84,10 @@ function saveRename() {
         </a-scrollbar>
         <p v-if="app.chatError" class="error">{{ app.chatError }}</p>
         <div class="chat-composer">
-          <textarea v-model="app.chatDraft" rows="4" placeholder="输入消息..." @keydown.ctrl.enter="app.sendChatMessage"></textarea>
+          <a-textarea v-model="app.chatDraft" :auto-size="{ minRows: 4, maxRows: 8 }" placeholder="输入消息..." @keydown.ctrl.enter="app.sendChatMessage"/>
           <div class="chat-actions">
-            <label class="action-model-picker">
-              <span>模型</span>
+            <div class="action-model-picker">
+              <span class="field-label">模型</span>
               <a-select
                   v-model="app.chatModelSelection"
                   :options="app.textModelSelectOptions"
@@ -98,14 +99,14 @@ function saveRename() {
                   <a-tag v-if="data.providerName" size="small" class="model-provider-tag">{{ data.providerName }}</a-tag>
                 </template>
               </a-select>
-            </label>
-            <button v-if="app.chatLoading" type="button" class="stop-generation" :disabled="app.chatStopping" @click="app.stopChat">
-              <span class="stop-icon" aria-hidden="true"></span>
+            </div>
+            <a-button v-if="app.chatLoading" status="danger" class="stop-generation" :disabled="app.chatStopping" @click="app.stopChat">
+              <template #icon><IconStop/></template>
               {{ app.chatStopping ? '停止中...' : '停止' }}
-            </button>
-            <button type="button" class="generate" :disabled="app.chatLoading || !app.chatDraft.trim() || !app.chatModelSelection" @click="app.sendChatMessage">
+            </a-button>
+            <a-button type="primary" class="chat-send-button" :disabled="app.chatLoading || !app.chatDraft.trim() || !app.chatModelSelection" @click="app.sendChatMessage">
               {{ app.chatLoading ? '生成中...' : '发送' }}
-            </button>
+            </a-button>
           </div>
         </div>
       </div>
