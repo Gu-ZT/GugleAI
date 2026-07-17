@@ -6,8 +6,8 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 
 ## Features
 
-- **Multiple workspaces**: switch between image generation, text chat and an infinite canvas from the top bar; the window and product name are now consistently GugleAI
-- **Custom connections**: save API endpoints and API keys together as connection profiles, switch them from one dropdown, and add or edit each connection's available model list in a modal; keys only show redacted previews; `/v1` is appended automatically when an endpoint omits it
+- **Multiple workspaces**: switch between image generation, text chat, and the infinite canvas from a compact left navigation rail; each workspace is now a separate Vue Router page
+- **Custom connections**: the previous sidebar controls now live in a settings modal; save API endpoints and API keys together as connection profiles, switch them from one dropdown, and add or edit each connection's available model list in a separate modal; keys only show redacted previews; `/v1` is appended automatically when an endpoint omits it
 - **Text chat**: hold continuous text conversations through `/chat/completions`; text model IDs can be entered and saved as options while reusing the active API connection and system proxy
 - **Infinite canvas**: pan and zoom freely while each node selects its own API connection and one of that connection's models; text generation creates a connected text child, while uploaded or generated image nodes are reference-only inputs that can feed a new empty image node and produce multiple image children
 - **Paste-to-configure**: press Ctrl+V to add and switch to an imported connection, supporting newapi channel JSON (`{"_type":"newapi_channel_conn",...}`) and Codex CLI `config.toml` (extracts `base_url`)
@@ -29,7 +29,7 @@ Grab the installer for your platform from the [Releases](../../releases) page. W
 
 Prerequisites: [Node.js 20.19+](https://nodejs.org/), [pnpm](https://pnpm.io/), [Rust](https://www.rust-lang.org/).
 
-The frontend uses Vue Router hash history for the `/image`, `/chat`, and `/canvas` workspaces. Arco Design components are resolved on demand through `unplugin-vue-components`. Shared logic lives in `src/api/index.ts`, `src/chat/index.ts`, `src/canvas/index.ts`, and `src/router/index.ts`, with class-based API connection, chat session, and canvas graph abstractions. All network requests still pass through the Tauri HTTP `fetch` wrapper in `src/App.vue`.
+The frontend uses Vue Router hash history for the `/image`, `/chat`, and `/canvas` workspaces, with page components under `src/views/`. Settings, connection editing, and preview overlays live under `src/components/modals/`. Arco Design components are resolved on demand through `unplugin-vue-components`. Shared logic lives in `src/api/index.ts`, `src/chat/index.ts`, `src/canvas/index.ts`, and `src/router/index.ts`, with class-based API connection, chat session, and canvas graph abstractions. All network requests still pass through the Tauri HTTP `fetch` wrapper in `src/App.vue`.
 
 ```bash
 # Install dependencies
@@ -44,7 +44,7 @@ pnpm tauri build
 
 ## Usage
 
-1. Switch between **Image Generation**, **Chat**, and **Infinite Canvas** from the top bar; use the API connection modal to configure endpoints, keys, and available models
+1. Use the left navigation icons to switch between **Image Generation**, **Chat**, and **Infinite Canvas**; open **Settings** at the bottom left to configure endpoints, keys, and available models
 2. In Image Generation, enter a prompt and optional references; in Chat, select or enter a text model and continue a normal text conversation
 3. In Infinite Canvas, select a connection and model per node; text generation creates a new text child, and image-bearing nodes must be connected as references to a new empty image node before generation
 4. Image previews remain available; double-click to enlarge, or right-click to copy the image or prompt, use it as a reference, save it, delete it, or clear the full preview history

@@ -1,22 +1,24 @@
 <script setup lang="ts">
-import {computed, onMounted, onUnmounted, ref, watch} from "vue";
+import {computed, onMounted, onUnmounted, reactive, ref, watch} from "vue";
 import {fetch as httpFetch, type ClientOptions} from "@tauri-apps/plugin-http";
 import {save} from "@tauri-apps/plugin-dialog";
 import {invoke} from "@tauri-apps/api/core";
 import {openUrl} from "@tauri-apps/plugin-opener";
 import {getVersion} from "@tauri-apps/api/app";
-import {useRoute, useRouter} from "vue-router";
+import {RouterView, useRoute, useRouter} from "vue-router";
 import {
-  Handle,
-  Position,
-  VueFlow,
-} from "@vue-flow/core";
-import "@vue-flow/core/dist/style.css";
-import "@vue-flow/core/dist/theme-default.css";
+  IconImage,
+  IconMessage,
+  IconMindMapping,
+  IconSettings,
+} from "@arco-design/web-vue/es/icon";
 import {OpenAIConnection} from "./api";
 import {CanvasGraph, type CanvasImageAsset, type CanvasNode, type CanvasNodeData} from "./canvas";
 import {ChatSession} from "./chat";
 import {workspaceModeFromRoute, type WorkspaceMode} from "./router";
+import SettingsModal from "./components/modals/SettingsModal.vue";
+import ConnectionModal from "./components/modals/ConnectionModal.vue";
+import ResultOverlays from "./components/modals/ResultOverlays.vue";
 
 interface RefImage {
   file: File;
@@ -112,7 +114,6 @@ const connectionProfiles = ref<ConnectionProfile[]>([
 ]);
 const activeConnectionId = ref(DEFAULT_CONNECTION_ID);
 const connectionMenuOpen = ref(false);
-const connectionPicker = ref<HTMLElement>();
 const connectionModalOpen = ref(false);
 const connectionDraftId = ref("");
 const connectionDraftEndpoint = ref("");
@@ -124,7 +125,6 @@ const model = ref("gpt-image-2");
 const modelOptions = ref([...DEFAULT_MODEL_OPTIONS]);
 const modelMenuOpen = ref(false);
 const modelShowAll = ref(true);
-const modelPicker = ref<HTMLElement>();
 const route = useRoute();
 const workspaceRouter = useRouter();
 const appMode = computed(() => workspaceModeFromRoute(route.name));
@@ -137,7 +137,6 @@ const retryStatusCodes = ref<number[]>([504]);
 const retryStatusCodeOptions = ref([...DEFAULT_RETRY_STATUS_CODE_OPTIONS]);
 const retryStatusCodeInput = ref("");
 const retryStatusCodeMenuOpen = ref(false);
-const retryStatusCodePicker = ref<HTMLElement>();
 const retryCount = ref(5);
 const autoCheckUpdate = ref(true);
 const size = ref("auto");
@@ -150,12 +149,11 @@ const historyLoading = ref(true);
 const loading = ref(false);
 const stopping = ref(false);
 const error = ref("");
-const fileInput = ref<HTMLInputElement>();
 const dragOver = ref(false);
 const resultContextMenu = ref<ResultContextMenuState | null>(null);
-const resultContextMenuElement = ref<HTMLElement>();
 const enlargedResult = ref<ResultImage | null>(null);
 const previewNotice = ref("");
+const settingsModalOpen = ref(false);
 
 const chatSession = new ChatSession();
 const chatMessages = chatSession.messages;
@@ -996,19 +994,6 @@ function removeRetryStatusCodeOption(code: number) {
   retryStatusCodes.value = retryStatusCodes.value.filter((item) => item !== code);
 }
 
-function closePickerMenus(e: PointerEvent) {
-  const target = e.target as Node;
-  if (!connectionPicker.value?.contains(target)) connectionMenuOpen.value = false;
-  if (!modelPicker.value?.contains(target)) {
-    modelMenuOpen.value = false;
-    modelShowAll.value = true;
-  }
-  if (!retryStatusCodePicker.value?.contains(target)) {
-    retryStatusCodeMenuOpen.value = false;
-  }
-  if (!resultContextMenuElement.value?.contains(target)) closeResultContextMenu();
-}
-
 function normalizeTextModelOptions(value: unknown): string[] {
   const saved = Array.isArray(value)
       ? value.filter((option): option is string => typeof option === "string" && option.trim().length > 0)
@@ -1096,7 +1081,6 @@ onMounted(async () => {
   window.addEventListener("blur", closeResultContextMenu);
   window.addEventListener("resize", closeResultContextMenu);
   window.addEventListener("scroll", closeResultContextMenu, true);
-  document.addEventListener("pointerdown", closePickerMenus);
   document.addEventListener("keydown", closeResultOverlaysOnEscape);
   await restoreResultHistory();
   if (appMode.value === "canvas") seedCanvas();
@@ -1114,7 +1098,6 @@ onUnmounted(() => {
   window.removeEventListener("blur", closeResultContextMenu);
   window.removeEventListener("resize", closeResultContextMenu);
   window.removeEventListener("scroll", closeResultContextMenu, true);
-  document.removeEventListener("pointerdown", closePickerMenus);
   document.removeEventListener("keydown", closeResultOverlaysOnEscape);
 });
 
@@ -2023,712 +2006,189 @@ function clearCanvas() {
   canvasControllers.clear();
   canvasGraph.clear();
 }
+
+const viewModel = reactive({
+  appMode,
+  appBusy,
+  settingsModalOpen,
+  endpoint,
+  apiKey,
+  connectionProfiles,
+  activeConnectionId,
+  connectionMenuOpen,
+  connectionModalOpen,
+  connectionDraftId,
+  connectionDraftEndpoint,
+  connectionDraftApiKey,
+  connectionDraftModels,
+  connectionDraftModelInput,
+  connectionDraftError,
+  model,
+  modelOptions,
+  modelMenuOpen,
+  modelShowAll,
+  filteredModelOptions,
+  canAddModelOption,
+  textModel,
+  textModelOptions,
+  apiMode,
+  retryEnabled,
+  retryStatusCodes,
+  retryStatusCodeOptions,
+  retryStatusCodeInput,
+  retryStatusCodeMenuOpen,
+  retryCount,
+  filteredRetryStatusCodeOptions,
+  retryStatusCodeInputValue,
+  showRetryStatusCodeInputAction,
+  autoCheckUpdate,
+  size,
+  count,
+  checkingUpdate,
+  updateStatus,
+  updateUrl,
+  showLogs,
+  logs,
+  logFilePath,
+  prompt,
+  refImages,
+  results,
+  historyLoading,
+  loading,
+  stopping,
+  error,
+  dragOver,
+  previewNotice,
+  hintText,
+  resultContextMenu,
+  enlargedResult,
+  chatMessages,
+  chatDraft,
+  chatLoading,
+  chatStopping,
+  chatError,
+  canvasNodes,
+  canvasEdges,
+  DEFAULT_MODEL_OPTIONS,
+  DEFAULT_RETRY_STATUS_CODE_OPTIONS,
+  setAppMode,
+  maskApiKey,
+  connectionOptionNumber,
+  selectConnection,
+  openConnectionModal,
+  closeConnectionModal,
+  saveConnectionDraft,
+  removeConnection,
+  addConnectionDraftModel,
+  removeConnectionDraftModel,
+  selectModelOption,
+  addModelOption,
+  removeModelOption,
+  addTextModelOption,
+  toggleRetryStatusCode,
+  addRetryStatusCode,
+  removeRetryStatusCodeOption,
+  checkUpdate,
+  openDownloadPage,
+  openLogFile,
+  addImages,
+  removeImage,
+  onDrop,
+  generate,
+  stopGeneration,
+  clearResultHistory,
+  saveImage,
+  deleteResultImage,
+  openResultContextMenu,
+  closeResultContextMenu,
+  openResultLightbox,
+  closeResultLightbox,
+  copyResultPrompt,
+  copyResultImage,
+  setResultAsReference,
+  saveResultFromContextMenu,
+  deleteResultFromContextMenu,
+  sendChatMessage,
+  stopChat,
+  clearChat,
+  addCanvasTextNode,
+  addCanvasImageNode,
+  updateCanvasNodeData,
+  onCanvasConnect,
+  onCanvasNodesUpdate,
+  onCanvasEdgesUpdate,
+  deleteCanvasNode,
+  onCanvasNodeConnectionChange,
+  canvasConnectionModels,
+  onCanvasImageFiles,
+  openCanvasImagePicker,
+  removeCanvasReference,
+  generateCanvasText,
+  generateCanvasImage,
+  stopCanvasNode,
+  clearCanvas,
+});
 </script>
 
 <template>
   <main class="app">
-    <aside class="sidebar">
-      <h2>连接设置</h2>
-      <div class="field">
-        <label id="connection-picker-label">API 连接</label>
-        <div ref="connectionPicker" class="combo-picker">
-          <button
-              type="button"
-              class="connection-control"
-              :class="{ open: connectionMenuOpen }"
-              aria-haspopup="listbox"
-              aria-controls="connection-option-list"
-              :aria-expanded="connectionMenuOpen"
-              aria-labelledby="connection-picker-label"
-              @click="connectionMenuOpen = !connectionMenuOpen"
-          >
-            <span class="connection-summary">
-              <span class="connection-endpoint" :title="endpoint">{{ endpoint }}</span>
-              <span class="connection-key">Key {{ maskApiKey(apiKey) }}</span>
-            </span>
-            <span class="connection-chevron" aria-hidden="true">
-              <span class="chevron"></span>
-            </span>
-          </button>
-          <div v-if="connectionMenuOpen" id="connection-option-list" class="combo-menu" role="listbox">
-            <div
-                v-for="profile in connectionProfiles"
-                :key="profile.id"
-                class="combo-option-row connection-option-row"
-                :class="{ selected: activeConnectionId === profile.id }"
-            >
-              <button
-                  type="button"
-                  class="combo-option-main connection-option"
-                  role="option"
-                  :aria-selected="activeConnectionId === profile.id"
-                  :aria-label="`选择连接 ${connectionOptionNumber(profile)}，${profile.endpoint}，Key ${maskApiKey(profile.apiKey)}`"
-                  @click="selectConnection(profile)"
-              >
-                <span class="connection-option-content">
-                  <span class="connection-endpoint" :title="profile.endpoint">{{ profile.endpoint }}</span>
-                  <span class="connection-key">Key {{ maskApiKey(profile.apiKey) }}</span>
-                </span>
-                <span v-if="activeConnectionId === profile.id" class="combo-check" aria-hidden="true">✓</span>
-              </button>
-              <button
-                  type="button"
-                  class="combo-edit-option"
-                  :aria-label="`编辑连接 ${connectionOptionNumber(profile)}，${profile.endpoint}`"
-                  title="编辑连接"
-                  @click.stop="openConnectionModal(profile)"
-              >
-                编辑
-              </button>
-              <button
-                  v-if="connectionProfiles.length > 1"
-                  type="button"
-                  class="combo-remove-option"
-                  :aria-label="`删除连接 ${connectionOptionNumber(profile)}，${profile.endpoint}`"
-                  title="删除连接"
-                  @click="removeConnection(profile)"
-              >
-                ×
-              </button>
-            </div>
-            <button type="button" class="combo-add" @click="openConnectionModal()">
-              <span aria-hidden="true">＋</span>
-              <span>添加连接</span>
-            </button>
-          </div>
-        </div>
-      </div>
-      <div v-if="appMode !== 'chat'" class="field">
-        <label for="model-input">模型 ID</label>
-        <div ref="modelPicker" class="combo-picker">
-          <div class="combo-control" :class="{ open: modelMenuOpen }">
-            <input
-                id="model-input"
-                v-model="model"
-                role="combobox"
-                aria-autocomplete="list"
-                aria-controls="model-option-list"
-                :aria-expanded="modelMenuOpen"
-                autocomplete="off"
-                placeholder="gpt-image-2"
-                @focus="modelMenuOpen = true; modelShowAll = true"
-                @input="modelMenuOpen = true; modelShowAll = false"
-                @keydown.enter.prevent="addModelOption"
-                @keydown.esc="modelMenuOpen = false"
-            />
-            <button
-                type="button"
-                class="combo-toggle"
-                aria-label="展开模型选项"
-                :aria-expanded="modelMenuOpen"
-                @click="modelMenuOpen = !modelMenuOpen; modelShowAll = true"
-            >
-              <span class="chevron" aria-hidden="true"></span>
-            </button>
-          </div>
-          <div v-if="modelMenuOpen" id="model-option-list" class="combo-menu" role="listbox">
-            <div
-                v-for="option in filteredModelOptions"
-                :key="option"
-                class="combo-option-row"
-                :class="{ selected: model === option }"
-            >
-              <button
-                  type="button"
-                  class="combo-option-main"
-                  role="option"
-                  :aria-selected="model === option"
-                  :title="option"
-                  @click="selectModelOption(option)"
-              >
-                <span class="combo-option-text">{{ option }}</span>
-                <span v-if="model === option" class="combo-check" aria-hidden="true">✓</span>
-              </button>
-              <button
-                  v-if="!DEFAULT_MODEL_OPTIONS.includes(option)"
-                  type="button"
-                  class="combo-remove-option"
-                  :aria-label="`删除模型选项 ${option}`"
-                  title="删除自定义选项"
-                  @click="removeModelOption(option)"
-              >
-                ×
-              </button>
-            </div>
-            <button v-if="canAddModelOption" type="button" class="combo-add" @click="addModelOption">
-              <span aria-hidden="true">＋</span>
-              <span class="combo-option-text">添加“{{ model.trim() }}”</span>
-            </button>
-          </div>
-        </div>
-      </div>
-      <div v-if="appMode !== 'image'" class="field text-model-field">
-        <label for="text-model-input">文字模型</label>
-        <input
-            id="text-model-input"
-            v-model="textModel"
-            list="text-model-options"
-            autocomplete="off"
-            placeholder="gpt-4o-mini"
-            @change="addTextModelOption"
-            @keydown.enter.prevent="addTextModelOption"
-        />
-        <datalist id="text-model-options">
-          <option v-for="option in textModelOptions" :key="option" :value="option"></option>
-        </datalist>
-      </div>
-
-      <label v-if="appMode !== 'chat'">
-        接口模式
-        <select v-model="apiMode">
-          <option value="auto">自动（多参考图走 Chat）</option>
-          <option value="images">Images 接口</option>
-          <option value="chat">Chat 接口</option>
-        </select>
-      </label>
-
-      <h2>请求重试</h2>
-      <label class="checkbox-row">
-        <input v-model="retryEnabled" type="checkbox"/>
-        <span>自动重试</span>
-      </label>
-      <div class="field">
-        <label for="retry-status-code-input">重试错误码</label>
-        <div ref="retryStatusCodePicker" class="combo-picker">
-          <div
-              class="combo-control combo-control-multi"
-              :class="{ open: retryStatusCodeMenuOpen, disabled: !retryEnabled }"
-          >
-            <div class="combo-values">
-              <button
-                  v-for="code in retryStatusCodes"
-                  :key="code"
-                  type="button"
-                  class="status-code-chip"
-                  :disabled="!retryEnabled"
-                  :aria-label="`取消选择错误码 ${code}`"
-                  :title="`取消选择 ${code}`"
-                  @click="toggleRetryStatusCode(code)"
-              >
-                {{ code }}<span aria-hidden="true">×</span>
-              </button>
-              <input
-                  id="retry-status-code-input"
-                  v-model="retryStatusCodeInput"
-                  role="combobox"
-                  aria-autocomplete="list"
-                  aria-controls="retry-status-code-option-list"
-                  :aria-expanded="retryStatusCodeMenuOpen"
-                  :disabled="!retryEnabled"
-                  inputmode="numeric"
-                  maxlength="3"
-                  autocomplete="off"
-                  placeholder="输入错误码"
-                  @focus="retryStatusCodeMenuOpen = true"
-                  @input="retryStatusCodeMenuOpen = true"
-                  @keydown.enter.prevent="addRetryStatusCode"
-                  @keydown.esc="retryStatusCodeMenuOpen = false"
-              />
-            </div>
-            <button
-                type="button"
-                class="combo-toggle"
-                aria-label="展开错误码选项"
-                :aria-expanded="retryStatusCodeMenuOpen"
-                :disabled="!retryEnabled"
-                @click="retryStatusCodeMenuOpen = !retryStatusCodeMenuOpen"
-            >
-              <span class="chevron" aria-hidden="true"></span>
-            </button>
-          </div>
-          <div
-              v-if="retryStatusCodeMenuOpen && retryEnabled"
-              id="retry-status-code-option-list"
-              class="combo-menu"
-          >
-            <div
-                v-for="code in filteredRetryStatusCodeOptions"
-                :key="code"
-                class="combo-option-row"
-                :class="{ selected: retryStatusCodes.includes(code) }"
-            >
-              <label class="combo-checkbox-option">
-                <input
-                    type="checkbox"
-                    :checked="retryStatusCodes.includes(code)"
-                    @change="toggleRetryStatusCode(code)"
-                />
-                <span>{{ code }}</span>
-              </label>
-              <button
-                  v-if="!DEFAULT_RETRY_STATUS_CODE_OPTIONS.includes(code)"
-                  type="button"
-                  class="combo-remove-option"
-                  :aria-label="`删除错误码选项 ${code}`"
-                  title="删除自定义选项"
-                  @click="removeRetryStatusCodeOption(code)"
-              >
-                ×
-              </button>
-            </div>
-            <button
-                v-if="showRetryStatusCodeInputAction"
-                type="button"
-                class="combo-add"
-                @click="addRetryStatusCode"
-            >
-              <span aria-hidden="true">＋</span>
-              <span>添加并选择 {{ retryStatusCodeInputValue }}</span>
-            </button>
-            <p
-                v-if="filteredRetryStatusCodeOptions.length === 0 && !showRetryStatusCodeInputAction"
-                class="combo-empty"
-            >
-              无匹配项
-            </p>
-          </div>
-        </div>
-      </div>
-      <label>
-        重试次数
-        <input v-model.number="retryCount" :disabled="!retryEnabled" type="number" min="1" max="20"/>
-      </label>
-
-      <template v-if="appMode !== 'chat'">
-        <h2>生成参数</h2>
-        <label>
-          尺寸
-          <select v-model="size">
-            <option value="auto">自动</option>
-            <option value="1024x1024">1024×1024</option>
-            <option value="1536x1024">1536×1024 (横)</option>
-            <option value="1024x1536">1024×1536 (竖)</option>
-          </select>
-        </label>
-        <label>
-          数量
-          <input v-model.number="count" type="number" min="1" max="10"/>
-        </label>
-      </template>
-
-      <h2>更新</h2>
-      <label class="checkbox-row">
-        <input v-model="autoCheckUpdate" type="checkbox"/>
-        <span>启动时自动检查更新</span>
-      </label>
-      <button class="log-btn" :disabled="checkingUpdate" @click="checkUpdate(true)">
-        {{ checkingUpdate ? "检查中..." : "检查更新" }}
-      </button>
-      <p v-if="updateStatus" class="update-status">
-        {{ updateStatus }}
-        <a v-if="updateUrl" href="#" @click.prevent="openDownloadPage">前往下载</a>
-      </p>
-
-      <button class="log-btn view-log" @click="showLogs = !showLogs">
-        {{ showLogs ? "隐藏日志" : "查看日志" }}
+    <aside class="nav-rail" aria-label="工作区导航">
+      <nav class="workspace-nav">
+        <button
+            type="button"
+            class="nav-rail-button"
+            :class="{ active: appMode === 'image' }"
+            :disabled="appBusy"
+            title="生图"
+            @click="setAppMode('image')"
+        >
+          <IconImage aria-hidden="true"/>
+          <span>生图</span>
+        </button>
+        <button
+            type="button"
+            class="nav-rail-button"
+            :class="{ active: appMode === 'chat' }"
+            :disabled="appBusy"
+            title="聊天"
+            @click="setAppMode('chat')"
+        >
+          <IconMessage aria-hidden="true"/>
+          <span>聊天</span>
+        </button>
+        <button
+            type="button"
+            class="nav-rail-button"
+            :class="{ active: appMode === 'canvas' }"
+            :disabled="appBusy"
+            title="无尽画布"
+            @click="setAppMode('canvas')"
+        >
+          <IconMindMapping aria-hidden="true"/>
+          <span>无尽画布</span>
+        </button>
+      </nav>
+      <button
+          type="button"
+          class="nav-rail-button settings-button"
+          :class="{ active: settingsModalOpen }"
+          title="设置"
+          @click="settingsModalOpen = true"
+      >
+        <IconSettings aria-hidden="true"/>
+        <span>设置</span>
       </button>
     </aside>
 
     <section class="content">
-      <nav class="mode-switcher" aria-label="工作区模式">
-        <a-button-group>
-          <a-button :type="appMode === 'image' ? 'primary' : 'text'" :disabled="appBusy" @click="setAppMode('image')">图像生成</a-button>
-          <a-button :type="appMode === 'chat' ? 'primary' : 'text'" :disabled="appBusy" @click="setAppMode('chat')">聊天</a-button>
-          <a-button :type="appMode === 'canvas' ? 'primary' : 'text'" :disabled="appBusy" @click="setAppMode('canvas')">无尽画布</a-button>
-        </a-button-group>
-      </nav>
-
-      <div v-if="showLogs" class="log-panel">
-        <div class="log-header">
-          <span>运行日志（本次会话 {{ logs.length }} 条）</span>
-          <button @click="openLogFile">打开日志文件</button>
-        </div>
-        <p v-if="logFilePath" class="log-path">{{ logFilePath }}</p>
-        <pre class="log-body">{{ logs.length ? logs.join("\n") : "暂无日志" }}</pre>
-      </div>
-
-      <template v-if="appMode === 'image'">
-      <div class="prompt-area">
-        <textarea
-            v-model="prompt"
-            rows="4"
-            placeholder="描述你想生成的图片..."
-            @keydown.ctrl.enter="generate"
-        ></textarea>
-
-        <div class="ref-images">
-          <div v-for="(img, i) in refImages" :key="img.previewUrl" class="ref-thumb">
-            <img :src="img.previewUrl" :alt="img.file.name" :title="img.file.name"/>
-            <button class="remove" @click="removeImage(i)">×</button>
-          </div>
-          <button
-              class="add-ref"
-              :class="{ 'drag-over': dragOver }"
-              title="添加参考图（可拖拽文件或 Ctrl+V 粘贴）"
-              @click="fileInput?.click()"
-              @dragover.prevent="dragOver = true"
-              @dragleave="dragOver = false"
-              @drop.prevent="onDrop"
-          >＋
-          </button>
-          <input
-              ref="fileInput"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              multiple
-              hidden
-              @change="addImages"
-          />
-        </div>
-
-        <div class="actions">
-          <span class="hint">{{ hintText }}</span>
-          <div class="action-buttons">
-            <button
-                v-if="loading"
-                type="button"
-                class="stop-generation"
-                :disabled="stopping"
-                @click="stopGeneration"
-            >
-              <span class="stop-icon" aria-hidden="true"></span>
-              {{ stopping ? "停止中..." : "停止" }}
-            </button>
-            <button class="generate" :disabled="loading" @click="generate">
-              {{ loading ? "生成中..." : "生成 (Ctrl+Enter)" }}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <p v-if="error" class="error">{{ error }}</p>
-
-      <section class="preview-panel" aria-label="预览区域">
-        <div class="preview-toolbar">
-          <span>{{ historyLoading ? "正在加载预览..." : `预览图片 ${results.length} 张` }}</span>
-          <span v-if="loading" class="preview-status">{{ stopping ? "正在停止..." : "正在生成..." }}</span>
-          <span v-if="previewNotice" class="preview-notice" role="status">{{ previewNotice }}</span>
-          <button
-              type="button"
-              class="clear-results"
-              :disabled="historyLoading || results.length === 0"
-              @click="clearResultHistory"
-          >
-            清空预览
-          </button>
-        </div>
-        <div v-if="results.length" class="results">
-          <div v-for="img in results" :key="img.id" class="result-card">
-            <img
-                :src="img.previewUrl"
-                alt="生成结果"
-                @dblclick.prevent="openResultLightbox(img)"
-                @contextmenu.prevent="openResultContextMenu($event, img)"
-            />
-            <div class="result-actions">
-              <button type="button" @click="saveImage(img)">保存</button>
-              <button type="button" class="delete-result" @click="deleteResultImage(img)">删除</button>
-            </div>
-          </div>
-        </div>
-        <div v-else class="placeholder">
-          {{ historyLoading ? "正在加载预览..." : loading ? "正在生成,请稍候..." : "生成的图片将显示在这里" }}
-        </div>
-      </section>
-
-      <div
-          v-if="resultContextMenu"
-          ref="resultContextMenuElement"
-          class="result-context-menu"
-          role="menu"
-          :style="{ left: `${resultContextMenu.x}px`, top: `${resultContextMenu.y}px` }"
-          @pointerdown.stop
-          @contextmenu.prevent
-      >
-        <button
-            type="button"
-            role="menuitem"
-            :disabled="!resultContextMenu.image.prompt"
-            :title="resultContextMenu.image.prompt ? '' : '旧版本预览未保存提示词'"
-            @click="copyResultPrompt(resultContextMenu.image)"
-        >
-          复制提示词
-        </button>
-        <button
-            type="button"
-            role="menuitem"
-            @click="copyResultImage(resultContextMenu.image)"
-        >
-          复制到剪贴板
-        </button>
-        <button
-            type="button"
-            role="menuitem"
-            @click="setResultAsReference(resultContextMenu.image)"
-        >
-          设置为参考图
-        </button>
-        <button
-            type="button"
-            role="menuitem"
-            @click="saveResultFromContextMenu(resultContextMenu.image)"
-        >
-          保存图片
-        </button>
-        <button
-            type="button"
-            class="context-delete"
-            role="menuitem"
-            @click="deleteResultFromContextMenu(resultContextMenu.image)"
-        >
-          删除图片
-        </button>
-      </div>
-
-      <div
-          v-if="enlargedResult"
-          class="result-lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label="放大预览"
-          @mousedown.self="closeResultLightbox"
-          @wheel.stop
-      >
-        <button
-            type="button"
-            class="lightbox-close"
-            aria-label="关闭放大预览"
-            title="关闭"
-            @click="closeResultLightbox"
-        >
-          ×
-        </button>
-        <img
-            :src="enlargedResult.previewUrl"
-            alt="放大的生成结果"
-            @dblclick.prevent="closeResultLightbox"
-        />
-      </div>
-      </template>
-
-      <section v-else-if="appMode === 'chat'" class="chat-workspace">
-        <div class="workspace-toolbar">
-          <div>
-            <strong>文字聊天</strong>
-            <span class="workspace-meta">{{ endpoint }} · Key {{ maskApiKey(apiKey) }} · {{ textModel }}</span>
-          </div>
-          <a-button size="small" :disabled="chatLoading || chatMessages.length === 0" @click="clearChat">清空会话</a-button>
-        </div>
-        <div class="chat-messages" aria-live="polite">
-          <div v-if="chatMessages.length === 0" class="chat-empty">开始一段文字对话</div>
-          <article v-for="message in chatMessages" :key="message.id" class="chat-message" :class="message.role">
-            <div class="chat-role">{{ message.role === 'user' ? '你' : '助手' }}</div>
-            <p>{{ message.content }}</p>
-          </article>
-          <div v-if="chatLoading" class="chat-message assistant chat-thinking">正在思考...</div>
-        </div>
-        <p v-if="chatError" class="error">{{ chatError }}</p>
-        <div class="chat-composer">
-          <textarea
-              v-model="chatDraft"
-              rows="4"
-              placeholder="输入消息..."
-              @keydown.ctrl.enter="sendChatMessage"
-          ></textarea>
-          <div class="chat-actions">
-            <button v-if="chatLoading" type="button" class="stop-generation" :disabled="chatStopping" @click="stopChat">
-              <span class="stop-icon" aria-hidden="true"></span>
-              {{ chatStopping ? '停止中...' : '停止' }}
-            </button>
-            <button type="button" class="generate" :disabled="chatLoading || !chatDraft.trim()" @click="sendChatMessage">
-              {{ chatLoading ? '生成中...' : '发送' }}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section v-else class="canvas-workspace">
-        <div class="workspace-toolbar canvas-toolbar">
-          <div>
-            <strong>无尽画布</strong>
-            <span class="workspace-meta">{{ connectionProfiles.length }} 个 API 连接</span>
-          </div>
-          <div class="canvas-toolbar-actions">
-            <a-button size="small" @click="addCanvasTextNode">＋文字节点</a-button>
-            <a-button size="small" @click="addCanvasImageNode">＋图像节点</a-button>
-            <a-button size="small" status="danger" :disabled="canvasNodes.length === 0" @click="clearCanvas">清空画布</a-button>
-          </div>
-        </div>
-        <div class="canvas-shell">
-          <VueFlow
-              id="main-canvas"
-              :nodes="canvasNodes"
-              :edges="canvasEdges"
-              class="canvas-flow"
-              :min-zoom="0.2"
-              :max-zoom="2.5"
-              :default-viewport="{ x: 0, y: 0, zoom: 0.9 }"
-              fit-view-on-init
-              @connect="onCanvasConnect"
-              @update:nodes="onCanvasNodesUpdate"
-              @update:edges="onCanvasEdgesUpdate"
-          >
-            <template #node-text="{ id, data }">
-              <div class="canvas-node canvas-text-node">
-                <Handle type="target" :position="Position.Left" />
-                <div class="canvas-node-header">
-                  <strong>{{ data.title }}</strong>
-                  <button type="button" class="canvas-node-delete nodrag" title="删除节点" @click.stop="deleteCanvasNode(id)">×</button>
-                </div>
-                <div class="canvas-node-config nodrag">
-                  <label>
-                    API 连接
-                    <select :value="data.connectionId" @change="onCanvasNodeConnectionChange(id, $event)">
-                      <option v-for="profile in connectionProfiles" :key="profile.id" :value="profile.id">
-                        {{ profile.endpoint }} · {{ maskApiKey(profile.apiKey) }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    模型
-                    <select v-model="data.model">
-                      <option v-for="modelName in canvasConnectionModels(data.connectionId)" :key="modelName" :value="modelName">
-                        {{ modelName }}
-                      </option>
-                    </select>
-                  </label>
-                </div>
-                <textarea v-model="data.text" class="nodrag" rows="5" placeholder="输入文字内容"></textarea>
-                <p v-if="data.error" class="canvas-node-error nodrag">{{ data.error }}</p>
-                <div class="canvas-node-actions nodrag">
-                  <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
-                  <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
-                  <button v-if="data.status === 'running'" type="button" class="node-stop" @click.stop="stopCanvasNode(id)">停止</button>
-                  <button v-else type="button" class="node-generate" @click.stop="generateCanvasText(id)">生成文字</button>
-                </div>
-                <Handle type="source" :position="Position.Right" />
-              </div>
-            </template>
-
-            <template #node-image="{ id, data }">
-              <div class="canvas-node canvas-image-node" :class="{ readonly: data.readOnly }">
-                <Handle type="target" :position="Position.Left" />
-                <div class="canvas-node-header">
-                  <strong>{{ data.title }}</strong>
-                  <button type="button" class="canvas-node-delete nodrag" title="删除节点" @click.stop="deleteCanvasNode(id)">×</button>
-                </div>
-                <div class="canvas-node-config nodrag">
-                  <label>
-                    API 连接
-                    <select :value="data.connectionId" @change="onCanvasNodeConnectionChange(id, $event)">
-                      <option v-for="profile in connectionProfiles" :key="profile.id" :value="profile.id">
-                        {{ profile.endpoint }} · {{ maskApiKey(profile.apiKey) }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    模型
-                    <select v-model="data.model">
-                      <option v-for="modelName in canvasConnectionModels(data.connectionId)" :key="modelName" :value="modelName">
-                        {{ modelName }}
-                      </option>
-                    </select>
-                  </label>
-                </div>
-                <div v-if="data.references.length" class="canvas-node-images nodrag">
-                  <div v-for="asset in data.references" :key="asset.id" class="canvas-node-image">
-                    <img :src="asset.url" :alt="asset.name" :title="asset.name"/>
-                    <button v-if="!data.readOnly" type="button" @click.stop="removeCanvasReference(id, asset.id)">×</button>
-                  </div>
-                </div>
-                <p v-else-if="data.readOnly" class="canvas-empty-image nodrag">暂无图片</p>
-                <template v-if="!data.readOnly && data.references.length === 0">
-                  <textarea v-model="data.prompt" class="nodrag" rows="3" placeholder="描述要生成的图片"></textarea>
-                  <div class="canvas-image-options nodrag">
-                    <button type="button" class="secondary-action" @click.stop="openCanvasImagePicker(id)">添加参考图</button>
-                    <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="onCanvasImageFiles(id, $event)"/>
-                    <label>数量 <input v-model.number="data.count" type="number" min="1" max="10" @click.stop/></label>
-                  </div>
-                  <div class="canvas-node-actions nodrag">
-                    <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
-                    <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
-                    <button v-if="data.status === 'running'" type="button" class="node-stop" @click.stop="stopCanvasNode(id)">停止</button>
-                    <button v-else type="button" class="node-generate" @click.stop="generateCanvasImage(id)">生成图片</button>
-                  </div>
-                </template>
-                <div v-else-if="!data.readOnly" class="canvas-reference-actions nodrag">
-                  <span>参考图节点</span>
-                  <button type="button" class="secondary-action" @click.stop="openCanvasImagePicker(id)">添加图片</button>
-                  <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="onCanvasImageFiles(id, $event)"/>
-                </div>
-                <Handle type="source" :position="Position.Right" />
-              </div>
-            </template>
-          </VueFlow>
-        </div>
-      </section>
+      <RouterView v-slot="{ Component }">
+        <component :is="Component" :app="viewModel"/>
+      </RouterView>
     </section>
 
-    <div v-if="connectionModalOpen" class="modal-backdrop" @mousedown.self="closeConnectionModal">
-      <form
-          class="connection-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="connection-modal-title"
-          @submit.prevent="saveConnectionDraft"
-          @keydown.esc.prevent="closeConnectionModal"
-      >
-        <div class="modal-header">
-          <h2 id="connection-modal-title">{{ connectionDraftId ? '编辑 API 连接' : '添加 API 连接' }}</h2>
-          <button type="button" aria-label="关闭" title="关闭" @click="closeConnectionModal">×</button>
-        </div>
-        <label for="connection-endpoint-input">
-          API 端点
-          <input
-              id="connection-endpoint-input"
-              v-model="connectionDraftEndpoint"
-              autofocus
-              autocomplete="off"
-              placeholder="https://api.openai.com/v1"
-              @input="connectionDraftError = ''"
-          />
-        </label>
-        <label for="connection-api-key-input">
-          API Key（可选）
-          <input
-              id="connection-api-key-input"
-              v-model="connectionDraftApiKey"
-              type="password"
-              autocomplete="new-password"
-              placeholder="sk-..."
-          />
-        </label>
-        <div class="connection-model-editor">
-          <label for="connection-model-input">可用模型</label>
-          <div class="connection-model-input-row">
-            <input
-                id="connection-model-input"
-                v-model="connectionDraftModelInput"
-                autocomplete="off"
-                placeholder="输入模型 ID"
-                @keydown.enter.prevent="addConnectionDraftModel"
-            />
-            <button type="button" @click="addConnectionDraftModel">添加</button>
-          </div>
-          <div class="connection-model-list">
-            <span v-for="modelName in connectionDraftModels" :key="modelName" class="connection-model-chip">
-              <span :title="modelName">{{ modelName }}</span>
-              <button type="button" :aria-label="`删除模型 ${modelName}`" title="删除模型" @click="removeConnectionDraftModel(modelName)">×</button>
-            </span>
-          </div>
-        </div>
-        <p v-if="connectionDraftError" class="modal-error">{{ connectionDraftError }}</p>
-        <div class="modal-actions">
-          <button type="button" class="modal-cancel" @click="closeConnectionModal">取消</button>
-          <button type="submit" class="modal-save">{{ connectionDraftId ? '保存修改' : '保存连接' }}</button>
-        </div>
-      </form>
-    </div>
+    <SettingsModal :app="viewModel"/>
+    <ConnectionModal :app="viewModel"/>
+    <ResultOverlays :app="viewModel"/>
   </main>
 </template>
 
@@ -2749,30 +2209,86 @@ body {
 }
 </style>
 
-<style scoped>
+<style>
 .app {
   display: flex;
   height: 100vh;
 }
 
-.sidebar {
-  width: 260px;
+.nav-rail {
+  position: relative;
+  display: flex;
+  width: 68px;
   flex-shrink: 0;
-  padding: 16px;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 6px;
   background: #1f1f23;
   border-right: 1px solid #2e2e33;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
-.sidebar h2 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.workspace-nav {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  display: flex;
+  width: 56px;
+  flex-direction: column;
+  gap: 8px;
+  transform: translateY(-50%);
+}
+
+.nav-rail-button {
+  display: flex;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   color: #a1a1aa;
-  margin: 8px 0 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.nav-rail-button svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+}
+
+.nav-rail-button span {
+  width: 100%;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-rail-button:hover:not(:disabled) {
+  background: #323237;
+  color: #f4f4f5;
+}
+
+.nav-rail-button.active {
+  background: #4f46e5;
+  color: #fff;
+}
+
+.nav-rail-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.settings-button {
+  margin-top: auto;
 }
 
 label {
@@ -3150,6 +2666,52 @@ textarea:focus {
   background: #09090bb8;
 }
 
+.settings-backdrop {
+  z-index: 90;
+}
+
+.connection-backdrop {
+  z-index: 110;
+}
+
+.settings-modal {
+  display: flex;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #3f3f46;
+  border-radius: 8px;
+  background: #1f1f23;
+  box-shadow: 0 16px 48px #000a;
+}
+
+.settings-modal > .modal-header {
+  flex: 0 0 auto;
+  padding: 14px 16px;
+  border-bottom: 1px solid #2e2e33;
+}
+
+.settings-body {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 14px 16px 18px;
+}
+
+.settings-body h3 {
+  margin: 6px 0 0;
+  color: #a1a1aa;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.settings-log-panel {
+  max-height: 260px;
+}
+
 .connection-modal {
   display: flex;
   width: min(400px, 100%);
@@ -3401,6 +2963,14 @@ textarea {
   color: #71717a;
 }
 
+.image-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .action-buttons {
   display: flex;
   flex: 0 1 auto;
@@ -3629,52 +3199,13 @@ textarea {
   gap: 16px;
 }
 
-.mode-switcher {
-  display: inline-flex;
-  align-self: flex-start;
-  flex: 0 0 auto;
-  padding: 3px;
-  border: 1px solid #3f3f46;
-  border-radius: 7px;
-  background: #1f1f23;
-}
-
-.mode-switcher :deep(.arco-btn-group) {
-  display: flex;
-}
-
-.mode-switcher :deep(.arco-btn) {
-  min-height: 30px;
-  padding: 5px 13px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #a1a1aa;
-  font: inherit;
-  cursor: pointer;
-}
-
-.mode-switcher :deep(.arco-btn:hover:not(:disabled)) {
-  color: #f4f4f5;
-}
-
-.mode-switcher :deep(.arco-btn-primary) {
-  background: #4f46e5;
-  color: #fff;
-}
-
-.mode-switcher :deep(.arco-btn:disabled) {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.workspace-toolbar :deep(.arco-btn-secondary) {
+.workspace-toolbar .arco-btn-secondary {
   border-color: #3f3f46;
   background: #27272a;
   color: #d4d4d8;
 }
 
-.workspace-toolbar :deep(.arco-btn-secondary:hover) {
+.workspace-toolbar .arco-btn-secondary:hover {
   border-color: #71717a;
   color: #fff;
 }
@@ -3853,24 +3384,24 @@ textarea {
   background-size: 28px 28px;
 }
 
-.canvas-flow :deep(.vue-flow__node) {
+.canvas-flow .vue-flow__node {
   border: 0;
   border-radius: 8px;
   background: transparent;
   box-shadow: none;
 }
 
-.canvas-flow :deep(.vue-flow__node.selected .canvas-node) {
+.canvas-flow .vue-flow__node.selected .canvas-node {
   border-color: #3b82f6;
   box-shadow: 0 0 0 1px #3b82f655;
 }
 
-.canvas-flow :deep(.vue-flow__edge-path) {
+.canvas-flow .vue-flow__edge-path {
   stroke: #d4d4d8;
   stroke-width: 1.6;
 }
 
-.canvas-flow :deep(.vue-flow__handle) {
+.canvas-flow .vue-flow__handle {
   width: 10px;
   height: 10px;
   border: 2px solid #18181b;
@@ -4239,32 +3770,13 @@ textarea {
 }
 
 @media (max-width: 760px) {
-  .sidebar {
-    width: 220px;
-    padding: 12px;
-  }
-
   .content {
     padding: 12px;
     gap: 12px;
   }
 
-  .mode-switcher {
-    width: 100%;
-  }
-
-  .mode-switcher :deep(.arco-btn-group) {
-    width: 100%;
-  }
-
-  .mode-switcher :deep(.arco-btn) {
-    flex: 1;
-    min-width: 0;
-    padding-inline: 6px;
-  }
-
   .workspace-meta {
-    max-width: calc(100vw - 260px);
+    max-width: calc(100vw - 112px);
   }
 
   .chat-message {

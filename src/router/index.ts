@@ -1,4 +1,7 @@
 import {createRouter, createWebHashHistory, type RouteRecordRaw} from "vue-router";
+import ImageView from "../views/ImageView.vue";
+import ChatView from "../views/ChatView.vue";
+import CanvasView from "../views/CanvasView.vue";
 
 export type WorkspaceMode = "image" | "chat" | "canvas";
 
@@ -6,9 +9,9 @@ const LAST_MODE_KEY = "gugle-ai-last-workspace";
 
 const routes: RouteRecordRaw[] = [
   {path: "/", redirect: () => `/${restoreWorkspaceMode()}`},
-  {path: "/image", name: "image", component: {render: () => null}},
-  {path: "/chat", name: "chat", component: {render: () => null}},
-  {path: "/canvas", name: "canvas", component: {render: () => null}},
+  {path: "/image", name: "image", component: ImageView},
+  {path: "/chat", name: "chat", component: ChatView},
+  {path: "/canvas", name: "canvas", component: CanvasView},
   {path: "/:pathMatch(.*)*", redirect: "/image"},
 ];
 
