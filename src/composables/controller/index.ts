@@ -114,6 +114,7 @@ export function useAppController() {
     resultHistory.closeResultContextMenu();
     resultHistory.closeResultLightbox();
     canvas.closeCanvasImageContextMenu();
+    canvas.closeCanvasDocumentContextMenu();
     if (appMode.value === "canvas" && mode !== "canvas") await canvas.showCanvasLibrary();
     if (mode === "canvas") await canvas.enterCanvasWorkspace();
     await router.push({name: mode === "settings" ? "settings-models" : mode});

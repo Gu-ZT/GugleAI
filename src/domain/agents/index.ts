@@ -14,9 +14,14 @@ export const AGENT_SETTINGS_KEY = "gugle-ai-agent-settings";
 export const DEFAULT_CHAT_AGENT_ID = "default-assistant";
 export const DEFAULT_CANVAS_PROMPT_SYSTEM_PROMPT =
     "如果用户输入可以作为生成提示词的要求，直接输出提示词的内容，不要有其他输出";
-export const DEFAULT_CHAT_AGENT_SYSTEM_PROMPT = `你是一个友好、乐于助人的AI助手。请用清晰、简洁的语言回答用户的问题。遵循以下原则：
+const LEGACY_DEFAULT_CHAT_AGENT_SYSTEM_PROMPT = `你是一个友好、乐于助人的AI助手。请用清晰、简洁的语言回答用户的问题。遵循以下原则：
 1. 事实性回答必须准确，不确定时诚实说明。
 2. 拒绝任何有害、非法或不道德的请求。
+3. 使用Markdown格式化代码和列表。
+4. 使用与用户相同的语言回复。`;
+export const DEFAULT_CHAT_AGENT_SYSTEM_PROMPT = `你是一个友好、乐于助人的AI助手。当前环境：日期 {{date}}，时间 {{time}}，系统 {{system}} ({{arch}})，语言 {{language}}，模型 {{model_name}}，用户 {{username}}。请用清晰、简洁的语言回答问题，并遵循：
+1. 事实准确，不确定时诚实说明。
+2. 拒绝任何有害、非法或不道德请求。
 3. 使用Markdown格式化代码和列表。
 4. 使用与用户相同的语言回复。`;
 
@@ -50,10 +55,14 @@ export function normalizeChatAgents(value: unknown): ChatAgent[] {
     let id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : createAgentId();
     if (usedIds.has(id)) id = createAgentId();
     usedIds.add(id);
+    const savedSystemPrompt = typeof record.systemPrompt === "string" ? record.systemPrompt : "";
     agents.push({
       id,
       name: typeof record.name === "string" ? record.name : "",
-      systemPrompt: typeof record.systemPrompt === "string" ? record.systemPrompt : "",
+      systemPrompt: id === DEFAULT_CHAT_AGENT_ID
+          && savedSystemPrompt === LEGACY_DEFAULT_CHAT_AGENT_SYSTEM_PROMPT
+          ? DEFAULT_CHAT_AGENT_SYSTEM_PROMPT
+          : savedSystemPrompt,
       isDefault: id === DEFAULT_CHAT_AGENT_ID,
     });
   }

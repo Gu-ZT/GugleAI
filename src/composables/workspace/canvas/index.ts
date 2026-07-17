@@ -51,6 +51,14 @@ interface CanvasImageContextMenuState {
   y: number;
 }
 
+interface CanvasDocumentContextMenuState {
+  document: CanvasDocumentMeta;
+  x: number;
+  y: number;
+}
+
+const CANVAS_VIEWPORT_VERSION = 2;
+
 export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
   const canvasNodes = options.graph.nodes;
   const canvasEdges = options.graph.edges;
@@ -61,6 +69,13 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
   const activeCanvas = ref<CanvasDocumentMeta | null>(null);
   const canvasViewport = ref<CanvasViewport>({...DEFAULT_CANVAS_VIEWPORT});
   const canvasImageContextMenu = ref<CanvasImageContextMenuState | null>(null);
+  const canvasDocumentContextMenu = ref<CanvasDocumentContextMenuState | null>(null);
+  const canvasRenameTarget = ref<CanvasDocumentMeta | null>(null);
+  const canvasRenameDraft = ref("");
+  const canvasRenameError = ref("");
+  const canvasRenameSaving = ref(false);
+  const canvasDeleteTarget = ref<CanvasDocumentMeta | null>(null);
+  const canvasDeleteSaving = ref(false);
   const controllers = new Map<string, AbortController>();
   let libraryInitialized = false;
   let persistenceSuspended = false;
@@ -94,6 +109,7 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
   async function createCanvas() {
     if (canvasLibraryLoading.value || canvasBusyCount.value > 0) return;
     canvasLibraryLoading.value = true;
+    closeCanvasDocumentContextMenu();
     try {
       const document = createBlankCanvasDocument(nextCanvasName());
       await putCanvasDocument(document);
@@ -109,6 +125,7 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
   async function openCanvas(id: string) {
     if (canvasLibraryLoading.value || canvasBusyCount.value > 0) return;
     canvasLibraryLoading.value = true;
+    closeCanvasDocumentContextMenu();
     try {
       const document = await getCanvasDocument(id);
       if (!document) throw new Error("画布不存在或已经被删除");
@@ -123,6 +140,7 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
   async function showCanvasLibrary() {
     if (canvasBusyCount.value > 0) return;
     closeCanvasImageContextMenu();
+    closeCanvasDocumentContextMenu();
     await flushActiveCanvas();
     persistenceSuspended = true;
     activeCanvas.value = null;
@@ -139,28 +157,102 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     }
   }
 
-  async function deleteCanvasDocument(id: string) {
-    const document = canvasDocuments.value.find((item) => item.id === id);
-    if (!document || !window.confirm(`确定删除“${document.name}”吗？此操作无法撤销。`)) return;
-    canvasLibraryLoading.value = true;
+  function openCanvasDocumentContextMenu(event: MouseEvent, document: CanvasDocumentMeta) {
+    closeCanvasImageContextMenu();
+    const menuWidth = 152;
+    const menuHeight = 78;
+    const padding = 8;
+    canvasDocumentContextMenu.value = {
+      document,
+      x: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+      y: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
+    };
+  }
+
+  function closeCanvasDocumentContextMenu() {
+    canvasDocumentContextMenu.value = null;
+  }
+
+  function startRenameCanvasDocument() {
+    const document = canvasDocumentContextMenu.value?.document;
+    closeCanvasDocumentContextMenu();
+    if (!document) return;
+    canvasRenameTarget.value = document;
+    canvasRenameDraft.value = document.name;
+    canvasRenameError.value = "";
+  }
+
+  function cancelRenameCanvasDocument() {
+    if (canvasRenameSaving.value) return;
+    canvasRenameTarget.value = null;
+    canvasRenameDraft.value = "";
+    canvasRenameError.value = "";
+  }
+
+  async function renameCanvasDocument() {
+    const target = canvasRenameTarget.value;
+    const name = canvasRenameDraft.value.trim();
+    if (!target || canvasRenameSaving.value) return;
+    if (!name) {
+      canvasRenameError.value = "画布名称不能为空";
+      return;
+    }
+    canvasRenameSaving.value = true;
+    canvasRenameError.value = "";
     try {
-      await deleteStoredCanvasDocument(id);
-      canvasDocuments.value = canvasDocuments.value.filter((item) => item.id !== id);
+      const stored = await getCanvasDocument(target.id);
+      if (!stored) throw new Error("画布不存在或已经被删除");
+      const updated = {...stored, name, updatedAt: Date.now()};
+      await putCanvasDocument(updated);
+      canvasDocuments.value = [
+        documentMeta(updated),
+        ...canvasDocuments.value.filter((item) => item.id !== target.id),
+      ];
+      canvasRenameTarget.value = null;
+    } catch (reason) {
+      canvasRenameError.value = `重命名失败: ${options.errorMessage(reason)}`;
+    } finally {
+      canvasRenameSaving.value = false;
+    }
+  }
+
+  function requestDeleteCanvasDocument() {
+    const document = canvasDocumentContextMenu.value?.document;
+    closeCanvasDocumentContextMenu();
+    if (document) canvasDeleteTarget.value = document;
+  }
+
+  function cancelDeleteCanvasDocument() {
+    if (!canvasDeleteSaving.value) canvasDeleteTarget.value = null;
+  }
+
+  async function confirmDeleteCanvasDocument() {
+    const document = canvasDeleteTarget.value;
+    if (!document || canvasDeleteSaving.value) return;
+    canvasDeleteSaving.value = true;
+    try {
+      await deleteStoredCanvasDocument(document.id);
+      canvasDocuments.value = canvasDocuments.value.filter((item) => item.id !== document.id);
+      canvasDeleteTarget.value = null;
     } catch (reason) {
       reportCanvasStorageError("删除", reason);
     } finally {
-      canvasLibraryLoading.value = false;
+      canvasDeleteSaving.value = false;
     }
   }
 
   function loadCanvasDocument(document: StoredCanvasDocument) {
+    const migrateViewport = document.viewportVersion !== CANVAS_VIEWPORT_VERSION;
     persistenceSuspended = true;
     options.graph.load(document.snapshot);
-    canvasViewport.value = normalizeCanvasViewport(document.viewport);
+    canvasViewport.value = normalizeCanvasViewport(
+        migrateViewport ? DEFAULT_CANVAS_VIEWPORT : document.viewport
+    );
     activeCanvas.value = documentMeta(document);
     canvasLibraryOpen.value = false;
-    canvasDirty = false;
+    canvasDirty = migrateViewport;
     persistenceSuspended = false;
+    if (migrateViewport) void persistActiveCanvas();
   }
 
   function createBlankCanvasDocument(name: string): StoredCanvasDocument {
@@ -171,6 +263,7 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
       name,
       createdAt: now,
       updatedAt: now,
+      viewportVersion: CANVAS_VIEWPORT_VERSION,
       viewport: {...DEFAULT_CANVAS_VIEWPORT},
       snapshot: {version: 1, nodes: [], edges: []},
     };
@@ -199,8 +292,11 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     canvasDirty = false;
     const updatedAt = Date.now();
     const document: StoredCanvasDocument = {
-      ...current,
+      id: current.id,
+      name: current.name,
+      createdAt: current.createdAt,
       updatedAt,
+      viewportVersion: CANVAS_VIEWPORT_VERSION,
       snapshot: options.graph.snapshot(),
       viewport: {...canvasViewport.value},
     };
@@ -586,6 +682,7 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     for (const controller of controllers.values()) controller.abort();
     controllers.clear();
     closeCanvasImageContextMenu();
+    closeCanvasDocumentContextMenu();
     options.graph.dispose();
   });
 
@@ -599,11 +696,25 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     activeCanvas,
     canvasViewport,
     canvasImageContextMenu,
+    canvasDocumentContextMenu,
+    canvasRenameTarget,
+    canvasRenameDraft,
+    canvasRenameError,
+    canvasRenameSaving,
+    canvasDeleteTarget,
+    canvasDeleteSaving,
     enterCanvasWorkspace,
     createCanvas,
     openCanvas,
     showCanvasLibrary,
-    deleteCanvasDocument,
+    openCanvasDocumentContextMenu,
+    closeCanvasDocumentContextMenu,
+    startRenameCanvasDocument,
+    cancelRenameCanvasDocument,
+    renameCanvasDocument,
+    requestDeleteCanvasDocument,
+    cancelDeleteCanvasDocument,
+    confirmDeleteCanvasDocument,
     updateCanvasViewport,
     formatCanvasUpdatedAt,
     addCanvasTextNode,
@@ -637,6 +748,7 @@ function documentMeta(document: StoredCanvasDocument): CanvasDocumentMeta {
     name: document.name,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    nodeCount: document.snapshot.nodes.length,
   };
 }
 

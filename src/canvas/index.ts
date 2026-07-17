@@ -17,7 +17,7 @@ export interface CanvasViewport {
   zoom: number;
 }
 
-export const DEFAULT_CANVAS_VIEWPORT: CanvasViewport = {x: 0, y: 0, zoom: 0.35};
+export const DEFAULT_CANVAS_VIEWPORT: CanvasViewport = {x: 0, y: 0, zoom: 0.6};
 
 export interface CanvasImageAsset {
   id: string;

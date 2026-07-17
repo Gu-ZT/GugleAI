@@ -9,9 +9,15 @@ export interface CanvasDocumentMeta {
   name: string;
   createdAt: number;
   updatedAt: number;
+  nodeCount: number;
 }
 
-export interface StoredCanvasDocument extends CanvasDocumentMeta {
+export interface StoredCanvasDocument {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  viewportVersion?: number;
   snapshot: CanvasSnapshot;
   viewport: CanvasViewport;
 }
@@ -63,7 +69,13 @@ export async function listCanvasDocuments(): Promise<CanvasDocumentMeta[]> {
   await completed;
   return (request.result as StoredCanvasDocument[])
       .filter(isStoredCanvasDocument)
-      .map(({id, name, createdAt, updatedAt}) => ({id, name, createdAt, updatedAt}))
+      .map(({id, name, createdAt, updatedAt, snapshot}) => ({
+        id,
+        name,
+        createdAt,
+        updatedAt,
+        nodeCount: snapshot.nodes.length,
+      }))
       .sort((left, right) => right.updatedAt - left.updatedAt);
 }
 

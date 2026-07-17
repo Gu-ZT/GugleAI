@@ -5,16 +5,21 @@ import {IconClose} from "@arco-design/web-vue/es/icon";
 const props = defineProps<{app: any}>();
 const resultContextMenu = ref<HTMLElement>();
 const canvasContextMenu = ref<HTMLElement>();
+const canvasDocumentContextMenu = ref<HTMLElement>();
 
 function closeOnOutsidePointer(event: PointerEvent) {
   const target = event.target as Node;
   if (!resultContextMenu.value?.contains(target)) props.app.closeResultContextMenu();
   if (!canvasContextMenu.value?.contains(target)) props.app.closeCanvasImageContextMenu();
+  if (!canvasDocumentContextMenu.value?.contains(target)) {
+    props.app.closeCanvasDocumentContextMenu();
+  }
 }
 
 function closeContextMenus() {
   props.app.closeResultContextMenu();
   props.app.closeCanvasImageContextMenu();
+  props.app.closeCanvasDocumentContextMenu();
 }
 
 onMounted(() => {
@@ -72,6 +77,19 @@ onUnmounted(() => {
     >复制提示词</a-button>
     <a-button type="text" role="menuitem" @click="app.copyCanvasImage(app.canvasImageContextMenu.image)">复制到剪贴板</a-button>
     <a-button type="text" role="menuitem" @click="app.saveCanvasImage(app.canvasImageContextMenu.image)">保存图片</a-button>
+  </div>
+
+  <div
+      v-if="app.canvasDocumentContextMenu"
+      ref="canvasDocumentContextMenu"
+      class="result-context-menu canvas-document-context-menu"
+      role="menu"
+      :style="{ left: `${app.canvasDocumentContextMenu.x}px`, top: `${app.canvasDocumentContextMenu.y}px` }"
+      @pointerdown.stop
+      @contextmenu.prevent
+  >
+    <a-button type="text" role="menuitem" @click="app.startRenameCanvasDocument">重命名</a-button>
+    <a-button type="text" status="danger" class="context-delete" role="menuitem" @click="app.requestDeleteCanvasDocument">删除画布</a-button>
   </div>
 
   <div

@@ -4,7 +4,6 @@ import {Handle, Position, VueFlow, type ViewportTransform} from "@vue-flow/core"
 import {
   IconArrowLeft,
   IconClose,
-  IconDelete,
   IconFolder,
   IconPlus,
   IconRefresh,
@@ -15,7 +14,7 @@ import "@vue-flow/core/dist/theme-default.css";
 
 const props = defineProps<{app: any}>();
 
-const canvasSelectTriggerProps = ref(createCanvasSelectTriggerProps(0.35));
+const canvasSelectTriggerProps = ref(createCanvasSelectTriggerProps(0.6));
 
 onMounted(() => void props.app.enterCanvasWorkspace());
 
@@ -53,30 +52,24 @@ function onCanvasViewportChange(viewport: ViewportTransform) {
       <div class="canvas-library">
         <a-spin :loading="app.canvasLibraryLoading" class="canvas-library-loading">
           <a-scrollbar class="canvas-library-scroll" :disable-horizontal="true">
-            <div v-if="app.canvasDocuments.length" class="canvas-library-list">
-              <div
+            <div v-if="app.canvasDocuments.length" class="canvas-library-grid">
+              <article
                   v-for="document in app.canvasDocuments"
                   :key="document.id"
-                  class="canvas-library-row"
+                  class="canvas-library-card"
                   @dblclick="app.openCanvas(document.id)"
+                  @contextmenu.prevent.stop="app.openCanvasDocumentContextMenu($event, document)"
               >
-                <IconFolder class="canvas-library-icon" aria-hidden="true"/>
-                <div class="canvas-library-info">
+                <div class="canvas-card-preview">
+                  <IconFolder class="canvas-library-icon" aria-hidden="true"/>
+                  <span>{{ document.nodeCount }} 个节点</span>
+                </div>
+                <div class="canvas-card-info">
                   <strong>{{ document.name }}</strong>
                   <span>最后编辑 {{ app.formatCanvasUpdatedAt(document.updatedAt) }}</span>
+                  <a-button size="small" long @click="app.openCanvas(document.id)">打开</a-button>
                 </div>
-                <div class="canvas-library-actions">
-                  <a-button size="small" @click="app.openCanvas(document.id)">打开</a-button>
-                  <a-button
-                      type="text"
-                      shape="circle"
-                      status="danger"
-                      title="删除画布"
-                      aria-label="删除画布"
-                      @click.stop="app.deleteCanvasDocument(document.id)"
-                  ><IconDelete/></a-button>
-                </div>
-              </div>
+              </article>
             </div>
             <a-empty v-else description="暂无画布"/>
           </a-scrollbar>
@@ -248,5 +241,47 @@ function onCanvasViewportChange(viewport: ViewportTransform) {
         </VueFlow>
       </div>
     </template>
+
+    <a-modal
+        :visible="Boolean(app.canvasRenameTarget)"
+        title="重命名画布"
+        ok-text="保存"
+        cancel-text="取消"
+        :ok-loading="app.canvasRenameSaving"
+        :mask-closable="!app.canvasRenameSaving"
+        :closable="!app.canvasRenameSaving"
+        :unmount-on-close="true"
+        @ok="app.renameCanvasDocument"
+        @cancel="app.cancelRenameCanvasDocument"
+    >
+      <label class="field">
+        <span class="field-label">画布名称</span>
+        <a-input
+            v-model="app.canvasRenameDraft"
+            :max-length="64"
+            autofocus
+            @press-enter="app.renameCanvasDocument"
+        />
+      </label>
+      <p v-if="app.canvasRenameError" class="canvas-document-modal-error">{{ app.canvasRenameError }}</p>
+    </a-modal>
+
+    <a-modal
+        :visible="Boolean(app.canvasDeleteTarget)"
+        title="删除画布"
+        ok-text="删除"
+        cancel-text="取消"
+        :ok-loading="app.canvasDeleteSaving"
+        :ok-button-props="{ status: 'danger' }"
+        :mask-closable="!app.canvasDeleteSaving"
+        :closable="!app.canvasDeleteSaving"
+        :unmount-on-close="true"
+        @ok="app.confirmDeleteCanvasDocument"
+        @cancel="app.cancelDeleteCanvasDocument"
+    >
+      <p class="canvas-delete-confirmation">
+        确定删除“{{ app.canvasDeleteTarget?.name }}”吗？画布中的节点和图片将永久删除，此操作无法撤销。
+      </p>
+    </a-modal>
   </section>
 </template>
