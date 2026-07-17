@@ -38,7 +38,17 @@ Grab the installer for your platform from the [Releases](../../releases) page. W
 
 Prerequisites: [Node.js 20.19+](https://nodejs.org/), [pnpm](https://pnpm.io/), [Rust](https://www.rust-lang.org/).
 
-The frontend uses Vue Router hash history for `/image`, `/chat`, `/canvas`, and `/settings`, with nested `/settings/models`, `/settings/general`, and `/settings/logs` routes. Page components live under `src/views/`, including setting subpages under `src/views/settings/`. Model editing, unsaved-change prompts, and preview overlays live under `src/components/modals/`. Arco Design components are resolved on demand through `unplugin-vue-components`. Shared logic lives in `src/api/index.ts`, `src/chat/index.ts`, `src/canvas/index.ts`, and `src/router/index.ts`, with class-based API connection, chat session, and canvas graph abstractions. All network requests still pass through the Tauri HTTP `fetch` wrapper in `src/App.vue`.
+The frontend uses Vue Router hash history for `/image`, `/chat`, `/canvas`, and `/settings`, with nested `/settings/models`, `/settings/general`, and `/settings/logs` routes. Page components live under `src/views/`, including setting subpages under `src/views/settings/`. Model editing, unsaved-change prompts, and preview overlays live under `src/components/modals/`. Arco Design components are resolved on demand through `unplugin-vue-components`.
+
+`src/App.vue` now contains only the application shell, router outlet, and global overlays. `src/composables/controller/index.ts` is a composition root that wires dependencies together and exposes the shared view model. Responsibilities are split as follows:
+
+- `src/composables/`: provider and application settings, themes, logging, updates, result history, and the Image, Chat, and Canvas workspace state
+- `src/services/`: OpenAI-compatible generation transport, retries and response parsing, plus IndexedDB preview persistence
+- `src/domain/`: shared types, defaults, model selection, and normalization helpers
+- `src/api/`, `src/chat/`, and `src/canvas/`: domain objects for API connections, chat sessions, and the canvas graph
+- `src/styles/`: separate style modules for the application shell, settings, Image, Chat, Canvas, result overlays, and responsive rules
+
+All network requests pass through the Tauri HTTP wrapper in `src/composables/fetch/index.ts` so the application can apply the system proxy. Images, Edits, and Chat generation requests are handled centrally by `src/services/transport/index.ts`.
 
 ```bash
 # Install dependencies

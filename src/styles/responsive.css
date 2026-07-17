@@ -1,0 +1,81 @@
+@media (max-width: 760px) {
+  .content-scroll-container {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .workspace-meta {
+    max-width: calc(100vw - 112px);
+  }
+
+  .settings-layout {
+    grid-template-columns: 128px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .provider-settings-layout {
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .provider-editor-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provider-editor-fields label:last-child {
+    grid-column: auto;
+  }
+
+  .chat-layout {
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .settings-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .image-generation-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chat-message {
+    max-width: 96%;
+  }
+
+  .canvas-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .canvas-shell {
+    min-height: 420px;
+  }
+}
+
+@media (max-width: 560px) {
+  .image-primary-options {
+    align-items: stretch;
+  }
+
+  .image-size-option,
+  .image-count-option,
+  .custom-size-inputs {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .image-generation-config-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provider-settings-layout,
+  .chat-layout {
+    grid-template-columns: 124px minmax(0, 1fr);
+  }
+
+  .provider-sidebar,
+  .chat-conversation-sidebar {
+    padding-right: 8px;
+  }
+}

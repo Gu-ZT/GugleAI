@@ -1,0 +1,71 @@
+.workspace-toolbar .arco-btn-secondary {
+  border-color: var(--color-border-2);
+  background: var(--color-bg-3);
+  color: var(--color-text-2);
+}
+
+.workspace-toolbar .arco-btn-secondary:hover:not(.arco-btn-disabled) {
+  border-color: var(--color-text-4);
+  color: var(--color-text-1);
+}
+
+.workspace-toolbar .arco-btn-secondary.arco-btn-disabled,
+.workspace-toolbar .arco-btn-secondary[type="button"].arco-btn-disabled {
+  border-color: var(--color-border-2);
+  background: var(--color-bg-3);
+  color: var(--color-text-4);
+  opacity: 0.7;
+}
+
+.workspace-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.workspace-toolbar > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-toolbar strong {
+  font-size: 14px;
+  color: var(--color-text-1);
+}
+
+.workspace-meta {
+  max-width: min(620px, 70vw);
+  overflow: hidden;
+  color: var(--color-text-4);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secondary-action {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 6px;
+  background: var(--color-bg-3);
+  color: var(--color-text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.secondary-action:hover:not(:disabled) {
+  border-color: var(--color-text-4);
+  color: var(--color-text-1);
+}
+
+.secondary-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+

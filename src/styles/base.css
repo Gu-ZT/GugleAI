@@ -1,0 +1,491 @@
+:root {
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  color: var(--color-text-1);
+  background-color: var(--color-bg-1);
+  --app-shadow-soft: color-mix(in srgb, var(--color-black) 24%, transparent);
+  --app-shadow: color-mix(in srgb, var(--color-black) 42%, transparent);
+  --app-shadow-strong: color-mix(in srgb, var(--color-black) 64%, transparent);
+  --app-scrim: color-mix(in srgb, var(--color-black) 72%, transparent);
+  --app-scrim-strong: color-mix(in srgb, var(--color-black) 88%, transparent);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-1);
+  background: var(--color-bg-1);
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+.nav-rail {
+  position: relative;
+  display: flex;
+  width: 68px;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 6px;
+  background: var(--color-bg-2);
+  border-right: 1px solid var(--color-border);
+}
+
+.workspace-nav {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  display: flex;
+  width: 56px;
+  flex-direction: column;
+  gap: 8px;
+  transform: translateY(-50%);
+}
+
+.nav-rail-button {
+  display: flex;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-3);
+  font: inherit;
+  cursor: pointer;
+}
+
+.nav-rail-button svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+}
+
+.nav-rail-button .arco-btn-content > span {
+  width: 100%;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-rail-button:hover:not(:disabled) {
+  background: var(--color-fill-2);
+  color: var(--color-text-1);
+}
+
+.nav-rail-button.active {
+  background: rgb(var(--primary-6));
+  color: var(--color-white);
+}
+
+.nav-rail-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.settings-button {
+  margin-top: auto;
+}
+
+label:not(.arco-checkbox):not(.arco-radio) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--color-text-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field > label {
+  font-size: 13px;
+  color: var(--color-text-3);
+}
+
+.field-label {
+  color: var(--color-text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.combo-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.combo-control {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 36px;
+  color: var(--color-text-1);
+  background: var(--color-bg-3);
+  border: 1px solid var(--color-border-2);
+  border-radius: 6px;
+}
+
+.combo-control:focus-within,
+.combo-control.open {
+  border-color: rgb(var(--primary-6));
+}
+
+.combo-control.disabled {
+  opacity: 0.5;
+}
+
+.connection-control {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  padding: 0 0 0 10px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 6px;
+  background: var(--color-bg-3);
+  color: var(--color-text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.connection-control:hover,
+.connection-control:focus-visible,
+.connection-control.open {
+  border-color: rgb(var(--primary-6));
+  outline: none;
+}
+
+.connection-summary,
+.connection-option-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.connection-endpoint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-key {
+  overflow: hidden;
+  color: var(--color-text-4);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-chevron {
+  display: flex;
+  width: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-3);
+}
+
+.connection-control.open .chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.connection-option-row {
+  min-height: 48px;
+}
+
+.connection-option {
+  align-self: stretch;
+}
+
+.combo-control > .arco-input-wrapper {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 6px 0 0 6px;
+  background: transparent;
+}
+
+.combo-control > .arco-input-wrapper:focus-within,
+.combo-values > .arco-input-wrapper:focus-within {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.combo-toggle {
+  width: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  color: var(--color-text-3);
+  cursor: pointer;
+}
+
+.combo-toggle:hover:not(:disabled) {
+  color: var(--color-text-1);
+  background: var(--color-fill-2);
+}
+
+.combo-toggle:disabled {
+  cursor: default;
+}
+
+.chevron {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.combo-control.open .chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.combo-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  border: 1px solid var(--color-border-2);
+  border-radius: 6px;
+  background: var(--color-bg-3);
+  box-shadow: 0 8px 24px var(--app-shadow);
+}
+
+.nav-rail-button .arco-btn-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.combo-menu-container {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.combo-option-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 4px;
+}
+
+.combo-option-row:hover,
+.combo-option-row.selected {
+  background: var(--color-fill-3);
+}
+
+.combo-option-main,
+.combo-add {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-1);
+  font: inherit;
+  cursor: pointer;
+}
+
+.combo-option-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.combo-option-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-check {
+  flex-shrink: 0;
+  color: rgb(var(--primary-6));
+}
+
+.combo-remove-option {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-4);
+  font: inherit;
+  cursor: pointer;
+}
+
+.combo-remove-option:hover {
+  background: var(--color-danger-light-1);
+  color: rgb(var(--danger-6));
+}
+
+.combo-edit-option {
+  min-width: 42px;
+  height: 28px;
+  flex: 0 0 42px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.combo-edit-option:hover {
+  background: var(--color-border-2);
+  color: var(--color-text-1);
+}
+
+.combo-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 8px;
+  border-top: 1px solid var(--color-border-2);
+  color: rgb(var(--primary-6));
+  text-align: left;
+}
+
+.combo-add:hover {
+  background: var(--color-fill-3);
+}
+
+.combo-add .arco-btn-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.combo-control-multi {
+  align-items: stretch;
+}
+
+.combo-values {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 2px 4px 6px;
+}
+
+.combo-values > .arco-input-wrapper {
+  flex: 1 0 78px;
+  width: 78px;
+  min-width: 0;
+  height: 26px;
+  padding: 3px 4px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.status-code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 5px 0 7px;
+  border: 1px solid var(--color-border-3);
+  border-radius: 4px;
+  background: var(--color-border-2);
+  color: var(--color-text-1);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.status-code-chip:hover:not(:disabled) {
+  border-color: var(--color-text-4);
+  background: var(--color-border-3);
+}
+
+.status-code-chip:disabled {
+  cursor: default;
+}
+
+.combo-checkbox-option {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  color: var(--color-text-1);
+  cursor: pointer;
+}
+
+.combo-empty {
+  margin: 0;
+  padding: 7px 8px;
+  color: var(--color-text-4);
+  font-size: 12px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--app-scrim);
+}
+
+.connection-backdrop {
+  z-index: 110;
+}
+
+.model-backdrop {
+  z-index: 115;
+}
+

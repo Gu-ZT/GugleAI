@@ -38,7 +38,17 @@
 
 依赖:[Node.js 20.19+](https://nodejs.org/)、[pnpm](https://pnpm.io/)、[Rust](https://www.rust-lang.org/)。
 
-前端使用 Vue Router Hash History 管理 `/image`、`/chat`、`/canvas` 和 `/settings` 页面,设置页进一步使用 `/settings/models`、`/settings/general`、`/settings/logs` 子路由。页面组件位于 `src/views/`,设置子页面位于 `src/views/settings/`。模型编辑、未保存更改提示和预览交互弹层位于 `src/components/modals/`。Arco Design 组件通过 `unplugin-vue-components` 按需解析;公共逻辑分别位于 `src/api/index.ts`、`src/chat/index.ts`、`src/canvas/index.ts` 和 `src/router/index.ts`,其中 API 连接、聊天会话和画布图结构使用类封装。实际网络请求仍统一经过 `src/App.vue` 的 Tauri HTTP `fetch` 封装。
+前端使用 Vue Router Hash History 管理 `/image`、`/chat`、`/canvas` 和 `/settings` 页面,设置页进一步使用 `/settings/models`、`/settings/general`、`/settings/logs` 子路由。页面组件位于 `src/views/`,设置子页面位于 `src/views/settings/`。模型编辑、未保存更改提示和预览交互弹层位于 `src/components/modals/`。Arco Design 组件通过 `unplugin-vue-components` 按需解析。
+
+`src/App.vue` 只保留应用壳层、路由出口和全局弹层,`src/composables/controller/index.ts` 只负责组合依赖并向页面提供统一的视图模型。具体职责按模块拆分:
+
+- `src/composables/`:提供商设置、应用设置、主题、日志、更新检查、结果历史,以及生图、聊天和画布工作区状态
+- `src/services/`:OpenAI 兼容生成请求、重试与响应解析,以及 IndexedDB 预览历史存储
+- `src/domain/`:共享类型、默认数据和模型选择/规范化工具
+- `src/api/`、`src/chat/`、`src/canvas/`:API 连接、聊天会话和画布图结构的领域对象
+- `src/styles/`:按基础壳层、设置、生图、聊天、画布、结果弹层和响应式规则拆分的样式
+
+所有网络请求统一经过 `src/composables/fetch/index.ts` 的 Tauri HTTP 封装,以应用系统代理;生成相关的 Images、Edits 和 Chat 请求由 `src/services/transport/index.ts` 统一处理。
 
 ```bash
 # 安装依赖
