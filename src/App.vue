@@ -4435,10 +4435,12 @@ label:not(.arco-checkbox):not(.arco-radio) {
 
 .conversation-list-item {
   position: relative;
-  display: flex;
+  display: grid;
   min-width: 0;
-  min-height: 52px;
+  min-height: 58px;
+  grid-template-columns: minmax(0, 1fr) 48px;
   align-items: center;
+  padding: 3px 4px 3px 3px;
   border-radius: 6px;
 }
 
@@ -4453,45 +4455,60 @@ label:not(.arco-checkbox):not(.arco-radio) {
 
 .conversation-select {
   display: flex;
+  width: 100%;
+  height: 100%;
   min-width: 0;
-  flex: 1;
-  align-self: stretch;
   flex-direction: column;
+  align-items: flex-start;
   justify-content: center;
-  gap: 3px;
-  padding: 7px 52px 7px 9px;
+  gap: 0;
+  padding: 6px 8px;
   border: 0;
   background: transparent;
   color: var(--color-text-2);
-  font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 
-.conversation-select .arco-btn-content > span,
-.conversation-select .arco-btn-content > small {
+.conversation-select:focus,
+.conversation-select:focus-visible {
+  box-shadow: none;
+}
+
+.conversation-title,
+.conversation-count {
+  display: block;
   overflow: hidden;
   width: 100%;
-  line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.conversation-select .arco-btn-content > small {
+.conversation-title {
+  color: var(--color-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.conversation-count {
   color: var(--color-text-4);
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 18px;
 }
 
 .conversation-item-actions {
-  position: absolute;
-  right: 5px;
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 2px;
+  opacity: 0;
+  visibility: hidden;
 }
 
 .conversation-list-item:hover .conversation-item-actions,
 .conversation-list-item.active .conversation-item-actions {
-  display: flex;
+  opacity: 1;
+  visibility: visible;
 }
 
 .conversation-item-actions button,
@@ -4540,15 +4557,6 @@ label:not(.arco-checkbox):not(.arco-radio) {
 .chat-messages {
   flex: 1;
   min-height: 240px;
-}
-
-.conversation-select .arco-btn-content {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
 }
 
 .chat-messages-container {

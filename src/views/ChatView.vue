@@ -39,8 +39,8 @@ function saveRename() {
             </form>
             <template v-else>
               <a-button type="text" class="conversation-select" :title="conversation.title" @click="app.selectChatConversation(conversation.id)" @dblclick="startRename(conversation)">
-                <span>{{ conversation.title }}</span>
-                <small>{{ conversation.messages.length }} 条消息</small>
+                <span class="conversation-title">{{ conversation.title }}</span>
+                <span class="conversation-count">{{ conversation.messages.length }} 条消息</span>
               </a-button>
               <div class="conversation-item-actions">
                 <a-button type="text" shape="circle" title="重命名" aria-label="重命名" @click="startRename(conversation)"><IconEdit/></a-button>
