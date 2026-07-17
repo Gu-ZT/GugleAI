@@ -7,8 +7,8 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 ## Features
 
 - **Multiple workspaces**: switch between image generation, text chat, and the infinite canvas from a compact left navigation rail; each workspace is now a separate Vue Router page
-- **Providers and models**: add and name providers, each with its own API endpoint, key, and model list; models support an ID, optional display name and description, image-model flag, and context length through a dedicated modal
-- **Organized settings**: the Settings page has nested routes for Model Settings, General Settings, and full-size Logs; Model Settings adds a secondary provider sidebar
+- **Providers and models**: add, name, and edit providers directly in the Model Settings detail pane, each with its own API endpoint, key, and model list; navigating with unsaved changes prompts you to save, discard, or keep editing; models support an ID, optional display name and description, image-model flag, and context length through a dedicated modal
+- **Organized settings**: the Settings page has nested routes for Model Settings, General Settings, and full-size Logs; entering Settings from the main navigation always opens Model Settings, which adds a secondary provider sidebar
 - **Text chat**: use `/chat/completions` across persistent multiple conversations with create, rename, delete, and per-message copy actions; assistant messages show the actual model, while first exchanges can generate titles asynchronously with a chosen model or title generation can be disabled
 - **Grouped model selection**: Image Generation, Chat, and Infinite Canvas nodes select models grouped by provider, and each request automatically uses that model's provider endpoint and key
 - **Infinite canvas**: pan and zoom freely; text generation creates a connected text child, while uploaded or generated image nodes are reference-only inputs that can feed a new empty image node and produce multiple image children
@@ -31,7 +31,7 @@ Grab the installer for your platform from the [Releases](../../releases) page. W
 
 Prerequisites: [Node.js 20.19+](https://nodejs.org/), [pnpm](https://pnpm.io/), [Rust](https://www.rust-lang.org/).
 
-The frontend uses Vue Router hash history for `/image`, `/chat`, `/canvas`, and `/settings`, with nested `/settings/models`, `/settings/general`, and `/settings/logs` routes. Page components live under `src/views/`, including setting subpages under `src/views/settings/`. Connection editing and preview overlays live under `src/components/modals/`. Arco Design components are resolved on demand through `unplugin-vue-components`. Shared logic lives in `src/api/index.ts`, `src/chat/index.ts`, `src/canvas/index.ts`, and `src/router/index.ts`, with class-based API connection, chat session, and canvas graph abstractions. All network requests still pass through the Tauri HTTP `fetch` wrapper in `src/App.vue`.
+The frontend uses Vue Router hash history for `/image`, `/chat`, `/canvas`, and `/settings`, with nested `/settings/models`, `/settings/general`, and `/settings/logs` routes. Page components live under `src/views/`, including setting subpages under `src/views/settings/`. Model editing, unsaved-change prompts, and preview overlays live under `src/components/modals/`. Arco Design components are resolved on demand through `unplugin-vue-components`. Shared logic lives in `src/api/index.ts`, `src/chat/index.ts`, `src/canvas/index.ts`, and `src/router/index.ts`, with class-based API connection, chat session, and canvas graph abstractions. All network requests still pass through the Tauri HTTP `fetch` wrapper in `src/App.vue`.
 
 ```bash
 # Install dependencies
@@ -46,7 +46,7 @@ pnpm tauri build
 
 ## Usage
 
-1. In Model Settings, add a provider with its endpoint and key, then maintain that provider's models through the model modal
+1. In Model Settings, add a provider, edit its name, endpoint, and key directly in the detail pane, save it, then maintain its models through the model modal
 2. Choose models grouped by provider in Image Generation, Chat, and Infinite Canvas; manually expand Advanced settings for image request options
 3. Create and rename persistent conversations in Chat; under General Settings, choose a title model, use the active chat model, or disable title generation
 4. In Infinite Canvas, text generation creates a new text child, and image-bearing nodes must be connected as references to a new empty image node before generation

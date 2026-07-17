@@ -7,8 +7,8 @@
 ## 功能
 
 - **多工作区**:左侧窄导航栏可在图像生成、文字聊天和无尽画布之间切换,三个工作区由独立 Vue Router 页面承载
-- **提供商与模型**:可添加和命名多个提供商,每个提供商保存 API 地址、API Key 和模型列表;模型支持 ID、显示名称、介绍、生图标记和上下文长度,通过独立弹出层添加或编辑
-- **分类设置**:设置页面使用独立侧边栏和子路由,分为模型设置、通用设置和全屏日志;模型设置中另有提供商侧边栏
+- **提供商与模型**:可在模型设置右侧直接添加、命名和编辑提供商,保存各自的 API 地址、API Key 和模型列表;未保存时切换页面会提示保存、放弃或继续编辑;模型支持 ID、显示名称、介绍、生图标记和上下文长度,通过独立弹出层添加或编辑
+- **分类设置**:设置页面使用独立侧边栏和子路由,分为模型设置、通用设置和全屏日志;每次从主导航进入设置时默认打开模型设置,其中另有提供商侧边栏
 - **文字聊天**:通过 `/chat/completions` 进行多会话文字对话;聊天记录持久化,支持新建、重命名、删除和复制消息,助手消息显示实际模型;首轮完成后可用指定模型异步生成标题,也可关闭标题生成
 - **分组模型选择**:生图、聊天和无尽画布节点均按提供商分组选择模型,请求自动使用模型所属提供商的地址和 Key
 - **无尽画布**:支持无限平移和缩放;文字生成会创建并连接新的文字子节点;上传或生成的图片节点只作为参考图输入,连接到新的空图像节点后可一次生成多张图片子节点
@@ -31,7 +31,7 @@
 
 依赖:[Node.js 20.19+](https://nodejs.org/)、[pnpm](https://pnpm.io/)、[Rust](https://www.rust-lang.org/)。
 
-前端使用 Vue Router Hash History 管理 `/image`、`/chat`、`/canvas` 和 `/settings` 页面,设置页进一步使用 `/settings/models`、`/settings/general`、`/settings/logs` 子路由。页面组件位于 `src/views/`,设置子页面位于 `src/views/settings/`。连接编辑和预览交互弹层位于 `src/components/modals/`。Arco Design 组件通过 `unplugin-vue-components` 按需解析;公共逻辑分别位于 `src/api/index.ts`、`src/chat/index.ts`、`src/canvas/index.ts` 和 `src/router/index.ts`,其中 API 连接、聊天会话和画布图结构使用类封装。实际网络请求仍统一经过 `src/App.vue` 的 Tauri HTTP `fetch` 封装。
+前端使用 Vue Router Hash History 管理 `/image`、`/chat`、`/canvas` 和 `/settings` 页面,设置页进一步使用 `/settings/models`、`/settings/general`、`/settings/logs` 子路由。页面组件位于 `src/views/`,设置子页面位于 `src/views/settings/`。模型编辑、未保存更改提示和预览交互弹层位于 `src/components/modals/`。Arco Design 组件通过 `unplugin-vue-components` 按需解析;公共逻辑分别位于 `src/api/index.ts`、`src/chat/index.ts`、`src/canvas/index.ts` 和 `src/router/index.ts`,其中 API 连接、聊天会话和画布图结构使用类封装。实际网络请求仍统一经过 `src/App.vue` 的 Tauri HTTP `fetch` 封装。
 
 ```bash
 # 安装依赖
@@ -46,7 +46,7 @@ pnpm tauri build
 
 ## 使用
 
-1. 在模型设置中添加提供商,填写 API 地址和 Key,再通过模型弹出层维护该提供商的模型列表
+1. 在模型设置中添加提供商,直接在右侧填写名称、API 地址和 Key 并保存,再通过模型弹出层维护该提供商的模型列表
 2. 生图、聊天和无尽画布从按提供商分组的下拉菜单选择模型;生图高级配置需手动展开
 3. 聊天页面可新建和重命名多个持久化会话;通用设置可选择对话标题模型、使用当前聊天模型或关闭标题生成
 4. 无尽画布中文字节点生成后会新增文字子节点;含图片的节点仅作参考输入,需连接到新的空图像节点进行生成

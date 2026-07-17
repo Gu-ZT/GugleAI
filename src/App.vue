@@ -16,9 +16,9 @@ import {OpenAIConnection} from "./api";
 import {CanvasGraph, type CanvasImageAsset, type CanvasNode, type CanvasNodeData} from "./canvas";
 import {ChatSession} from "./chat";
 import {workspaceModeFromRoute, type WorkspaceMode} from "./router";
-import ProviderModal from "./components/modals/ProviderModal.vue";
 import ModelModal from "./components/modals/ModelModal.vue";
 import ResultOverlays from "./components/modals/ResultOverlays.vue";
+import UnsavedChangesModal from "./components/modals/UnsavedChangesModal.vue";
 
 interface RefImage {
   file: File;
@@ -135,12 +135,14 @@ const connectionProfiles = ref<ConnectionProfile[]>([
 const activeConnectionId = ref(DEFAULT_CONNECTION_ID);
 const selectedProviderId = ref(DEFAULT_CONNECTION_ID);
 const connectionMenuOpen = ref(false);
-const connectionModalOpen = ref(false);
 const connectionDraftId = ref("");
 const connectionDraftName = ref("");
 const connectionDraftEndpoint = ref("");
 const connectionDraftApiKey = ref("");
 const connectionDraftError = ref("");
+const providerDraftIsNew = ref(false);
+const providerDraftPreviousId = ref(DEFAULT_CONNECTION_ID);
+const unsavedChangesModalOpen = ref(false);
 const modelModalOpen = ref(false);
 const modelDraftProviderId = ref("");
 const modelDraftOriginalId = ref("");
@@ -898,9 +900,45 @@ const textModelGroups = computed(() => connectionProfiles.value
     }))
     .filter((group) => group.models.length > 0));
 
-const selectedProvider = computed(() => connectionProfiles.value.find(
+const providerList = computed<ConnectionProfile[]>(() => {
+  if (!connectionDraftId.value) return connectionProfiles.value;
+  if (providerDraftIsNew.value) {
+    return [
+      ...connectionProfiles.value,
+      {
+        id: connectionDraftId.value,
+        name: connectionDraftName.value.trim() || "新提供商",
+        endpoint: connectionDraftEndpoint.value.trim(),
+        apiKey: connectionDraftApiKey.value,
+        models: [],
+      },
+    ];
+  }
+  return connectionProfiles.value.map((provider) => provider.id === connectionDraftId.value
+      ? {
+        ...provider,
+        name: connectionDraftName.value.trim() || "未命名提供商",
+        endpoint: connectionDraftEndpoint.value,
+        apiKey: connectionDraftApiKey.value,
+      }
+      : provider);
+});
+
+const selectedProvider = computed(() => providerList.value.find(
     (provider) => provider.id === selectedProviderId.value
-) ?? connectionProfiles.value[0]);
+) ?? providerList.value[0]);
+
+const hasUnsavedProviderChanges = computed(() => {
+  if (!connectionDraftId.value) return false;
+  if (providerDraftIsNew.value) return true;
+  const provider = connectionProfiles.value.find((item) => item.id === connectionDraftId.value);
+  if (!provider) return false;
+  return (
+    connectionDraftName.value !== provider.name ||
+    connectionDraftEndpoint.value !== provider.endpoint ||
+    connectionDraftApiKey.value !== provider.apiKey
+  );
+});
 
 function firstModelSelection(image: boolean): string {
   const group = (image ? imageModelGroups.value : textModelGroups.value)[0];
@@ -938,9 +976,78 @@ function selectConnection(profile: ConnectionProfile) {
   connectionMenuOpen.value = false;
 }
 
-function selectProvider(providerId: string) {
+type UnsavedChangesDecision = "save" | "discard" | "cancel";
+
+let unsavedChangesResolver: ((decision: UnsavedChangesDecision) => void) | null = null;
+let pendingUnsavedChangesDecision: Promise<UnsavedChangesDecision> | null = null;
+
+function resetConnectionDraft(profile: ConnectionProfile) {
+  connectionDraftId.value = profile.id;
+  connectionDraftName.value = profile.name;
+  connectionDraftEndpoint.value = profile.endpoint;
+  connectionDraftApiKey.value = profile.apiKey;
+  connectionDraftError.value = "";
+  providerDraftIsNew.value = false;
+}
+
+function requestUnsavedChangesDecision(): Promise<UnsavedChangesDecision> {
+  if (pendingUnsavedChangesDecision) return pendingUnsavedChangesDecision;
+  unsavedChangesModalOpen.value = true;
+  pendingUnsavedChangesDecision = new Promise((resolve) => {
+    unsavedChangesResolver = resolve;
+  });
+  return pendingUnsavedChangesDecision;
+}
+
+function resolveUnsavedChanges(decision: UnsavedChangesDecision) {
+  const resolve = unsavedChangesResolver;
+  unsavedChangesResolver = null;
+  pendingUnsavedChangesDecision = null;
+  unsavedChangesModalOpen.value = false;
+  resolve?.(decision);
+}
+
+function cancelConnectionDraft() {
+  if (providerDraftIsNew.value) {
+    const fallback = connectionProfiles.value.find((item) => item.id === providerDraftPreviousId.value)
+        ?? connectionProfiles.value[0];
+    if (fallback) {
+      selectConnection(fallback);
+      resetConnectionDraft(fallback);
+    }
+    return;
+  }
+  const provider = connectionProfiles.value.find((item) => item.id === connectionDraftId.value);
+  if (provider) resetConnectionDraft(provider);
+}
+
+async function confirmProviderChanges(): Promise<boolean> {
+  if (!hasUnsavedProviderChanges.value) return true;
+  const decision = await requestUnsavedChangesDecision();
+  if (decision === "cancel") return false;
+  if (decision === "save") return saveConnectionDraft();
+  cancelConnectionDraft();
+  return true;
+}
+
+function warnAboutUnsavedProviderChanges(event: BeforeUnloadEvent) {
+  if (!hasUnsavedProviderChanges.value) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+const removeProviderRouteGuard = workspaceRouter.beforeEach(async (to, from) => {
+  if (to.fullPath === from.fullPath) return true;
+  return confirmProviderChanges();
+});
+
+async function selectProvider(providerId: string) {
+  if (providerId === selectedProviderId.value) return;
+  if (!await confirmProviderChanges()) return;
   const provider = connectionProfiles.value.find((item) => item.id === providerId);
-  if (provider) selectConnection(provider);
+  if (!provider) return;
+  selectConnection(provider);
+  resetConnectionDraft(provider);
 }
 
 function addAndSelectConnection(
@@ -949,6 +1056,7 @@ function addAndSelectConnection(
     modelsValue: Array<string | ProviderModel> = DEFAULT_CONNECTION_MODELS,
     nameValue = ""
 ) {
+  if (hasUnsavedProviderChanges.value) return false;
   const profileEndpoint = endpointValue.trim();
   const profileApiKey = apiKeyValue.trim();
   if (!profileEndpoint) return false;
@@ -957,6 +1065,7 @@ function addAndSelectConnection(
   );
   if (existing) {
     selectConnection(existing);
+    resetConnectionDraft(existing);
     return true;
   }
   const profile: ConnectionProfile = {
@@ -968,43 +1077,40 @@ function addAndSelectConnection(
   };
   connectionProfiles.value = [...connectionProfiles.value, profile];
   selectConnection(profile);
+  resetConnectionDraft(profile);
   ensureModelSelections();
   return true;
 }
 
-function openConnectionModal(profile?: ConnectionProfile) {
-  connectionDraftId.value = profile?.id ?? "";
-  connectionDraftName.value = profile?.name ?? "";
-  connectionDraftEndpoint.value = profile?.endpoint ?? "";
-  connectionDraftApiKey.value = profile?.apiKey ?? "";
-  connectionDraftError.value = "";
-  connectionMenuOpen.value = false;
-  connectionModalOpen.value = true;
-}
-
-function closeConnectionModal() {
-  connectionModalOpen.value = false;
-  connectionDraftId.value = "";
+async function addProviderDraft() {
+  if (!await confirmProviderChanges()) return;
+  providerDraftPreviousId.value = connectionProfiles.value.some(
+      (item) => item.id === selectedProviderId.value
+  ) ? selectedProviderId.value : connectionProfiles.value[0]?.id ?? "";
+  connectionDraftId.value = createConnectionId();
   connectionDraftName.value = "";
   connectionDraftEndpoint.value = "";
   connectionDraftApiKey.value = "";
   connectionDraftError.value = "";
+  connectionMenuOpen.value = false;
+  providerDraftIsNew.value = true;
+  selectedProviderId.value = connectionDraftId.value;
 }
 
-function saveConnectionDraft() {
+function saveConnectionDraft(): boolean {
   const profileEndpoint = connectionDraftEndpoint.value.trim();
   if (!connectionDraftName.value.trim()) {
     connectionDraftError.value = "请输入提供商名称";
-    return;
+    return false;
   }
   if (!profileEndpoint) {
     connectionDraftError.value = "请输入 API 地址";
-    return;
+    return false;
   }
   const profileApiKey = connectionDraftApiKey.value.trim();
-  if (connectionDraftId.value) {
+  if (!providerDraftIsNew.value) {
     const current = connectionProfiles.value.find((item) => item.id === connectionDraftId.value);
-    if (!current) return;
+    if (!current) return false;
     const updated: ConnectionProfile = {
       ...current,
       name: connectionDraftName.value.trim(),
@@ -1015,9 +1121,10 @@ function saveConnectionDraft() {
         (profile) => profile.id === updated.id ? updated : profile
     );
     if (activeConnectionId.value === updated.id) selectConnection(updated);
+    resetConnectionDraft(updated);
   } else {
     const profile: ConnectionProfile = {
-      id: createConnectionId(),
+      id: connectionDraftId.value,
       name: connectionDraftName.value.trim(),
       endpoint: profileEndpoint,
       apiKey: profileApiKey,
@@ -1025,9 +1132,10 @@ function saveConnectionDraft() {
     };
     connectionProfiles.value = [...connectionProfiles.value, profile];
     selectConnection(profile);
+    resetConnectionDraft(profile);
   }
   ensureModelSelections();
-  closeConnectionModal();
+  return true;
 }
 
 function openModelModal(providerId: string, providerModel?: ProviderModel) {
@@ -1140,7 +1248,10 @@ function removeConnection(profile: ConnectionProfile) {
   if (connectionProfiles.value.length <= 1) return;
   const remaining = connectionProfiles.value.filter((item) => item.id !== profile.id);
   connectionProfiles.value = remaining;
-  if (activeConnectionId.value === profile.id) selectConnection(remaining[0]);
+  if (activeConnectionId.value === profile.id || selectedProviderId.value === profile.id) {
+    selectConnection(remaining[0]);
+    resetConnectionDraft(remaining[0]);
+  }
   for (const node of canvasNodes.value) {
     if (node.data.connectionId !== profile.id) continue;
     const fallback = node.type === "image"
@@ -1291,10 +1402,14 @@ onMounted(async () => {
     }
   }
   ensureModelSelections();
+  const initialProvider = connectionProfiles.value.find((item) => item.id === selectedProviderId.value)
+      ?? connectionProfiles.value[0];
+  if (initialProvider) resetConnectionDraft(initialProvider);
   window.addEventListener("paste", onPaste);
   window.addEventListener("blur", closeResultContextMenu);
   window.addEventListener("resize", closeResultContextMenu);
   window.addEventListener("scroll", closeResultContextMenu, true);
+  window.addEventListener("beforeunload", warnAboutUnsavedProviderChanges);
   document.addEventListener("keydown", closeResultOverlaysOnEscape);
   await restoreResultHistory();
   if (appMode.value === "canvas") seedCanvas();
@@ -1316,6 +1431,8 @@ onUnmounted(() => {
   window.removeEventListener("resize", closeResultContextMenu);
   window.removeEventListener("scroll", closeResultContextMenu, true);
   document.removeEventListener("keydown", closeResultOverlaysOnEscape);
+  window.removeEventListener("beforeunload", warnAboutUnsavedProviderChanges);
+  removeProviderRouteGuard();
 });
 
 watch(
@@ -1347,7 +1464,9 @@ watch(
             apiKey: apiKey.value,
             connectionProfiles: connectionProfiles.value,
             activeConnectionId: activeConnectionId.value,
-            selectedProviderId: selectedProviderId.value,
+            selectedProviderId: connectionProfiles.value.some(
+                (profile) => profile.id === selectedProviderId.value
+            ) ? selectedProviderId.value : providerDraftPreviousId.value,
             model: model.value,
             modelOptions: modelOptions.value,
             apiMode: apiMode.value,
@@ -2039,7 +2158,7 @@ async function setAppMode(mode: WorkspaceMode) {
   closeResultContextMenu();
   closeResultLightbox();
   if (mode === "canvas") seedCanvas();
-  await workspaceRouter.push({name: mode});
+  await workspaceRouter.push({name: mode === "settings" ? "settings-models" : mode});
 }
 
 function seedCanvas() {
@@ -2358,14 +2477,17 @@ const viewModel = reactive({
   endpoint,
   apiKey,
   connectionProfiles,
+  providerList,
   selectedProviderId,
   selectedProvider,
-  connectionModalOpen,
   connectionDraftId,
   connectionDraftName,
   connectionDraftEndpoint,
   connectionDraftApiKey,
   connectionDraftError,
+  providerDraftIsNew,
+  hasUnsavedProviderChanges,
+  unsavedChangesModalOpen,
   modelModalOpen,
   modelDraftProviderId,
   modelDraftOriginalId,
@@ -2428,9 +2550,10 @@ const viewModel = reactive({
   modelSelectionKey,
   modelDisplayName,
   selectProvider,
-  openConnectionModal,
-  closeConnectionModal,
+  addProviderDraft,
+  cancelConnectionDraft,
   saveConnectionDraft,
+  resolveUnsavedChanges,
   removeConnection,
   openModelModal,
   closeModelModal,
@@ -2543,8 +2666,8 @@ const viewModel = reactive({
       </RouterView>
     </section>
 
-    <ProviderModal :app="viewModel"/>
     <ModelModal :app="viewModel"/>
+    <UnsavedChangesModal :app="viewModel"/>
     <ResultOverlays :app="viewModel"/>
   </main>
 </template>
@@ -3258,6 +3381,12 @@ textarea:focus {
   overflow-y: auto;
 }
 
+.provider-editor {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
 .provider-detail-header,
 .provider-model-toolbar,
 .provider-model-row {
@@ -3273,21 +3402,28 @@ textarea:focus {
   font-size: 14px;
 }
 
-.provider-detail-header > div:first-child {
+.provider-editor-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.provider-editor-fields label:last-child {
+  grid-column: 1 / -1;
+}
+
+.provider-editor-fields input {
+  width: 100%;
   min-width: 0;
 }
 
-.provider-detail-header > div:first-child > span {
-  display: block;
-  margin-top: 4px;
-  overflow: hidden;
-  color: #71717a;
+.provider-editor-error {
+  margin: 8px 0 0;
+  color: #fca5a5;
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.provider-detail-actions,
 .provider-model-actions {
   display: flex;
   flex: 0 0 auto;
@@ -3308,12 +3444,6 @@ textarea:focus {
 .danger-action:disabled {
   opacity: 0.45;
   cursor: default;
-}
-
-.provider-key-summary {
-  margin-top: 10px;
-  color: #71717a;
-  font-size: 12px;
 }
 
 .provider-model-toolbar {
@@ -3372,6 +3502,26 @@ textarea:focus {
   padding: 28px 0;
   color: #71717a;
   text-align: center;
+}
+
+.provider-draft-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+  padding: 14px 0 2px;
+  border-top: 1px solid #2e2e33;
+  background: #18181b;
+}
+
+.provider-draft-actions button {
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
 }
 
 .connection-modal {
@@ -3538,6 +3688,39 @@ textarea:focus {
 
 .modal-save:hover {
   background: #818cf8;
+}
+
+.modal-discard {
+  border: 1px solid #7f1d1d;
+  background: #7f1d1d55;
+  color: #fca5a5;
+}
+
+.modal-discard:hover {
+  background: #7f1d1d88;
+}
+
+.unsaved-changes-backdrop {
+  z-index: 130;
+}
+
+.unsaved-changes-modal {
+  width: min(420px, 100%);
+  padding: 16px;
+  border: 1px solid #3f3f46;
+  border-radius: 8px;
+  background: #1f1f23;
+  box-shadow: 0 16px 48px #000a;
+}
+
+.unsaved-changes-modal > p {
+  margin: 12px 0 18px;
+  color: #a1a1aa;
+  line-height: 1.5;
+}
+
+.unsaved-changes-actions {
+  flex-wrap: wrap;
 }
 
 .content {
@@ -4690,6 +4873,14 @@ textarea {
   .provider-settings-layout {
     grid-template-columns: 140px minmax(0, 1fr);
     gap: 10px;
+  }
+
+  .provider-editor-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provider-editor-fields label:last-child {
+    grid-column: auto;
   }
 
   .chat-layout {
