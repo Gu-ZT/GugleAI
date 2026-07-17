@@ -26,11 +26,11 @@ defineProps<{app: any}>();
         </RouterLink>
       </aside>
 
-      <section class="settings-subpage">
+      <a-scrollbar outer-class="settings-subpage" class="settings-subpage-container" :disable-horizontal="true">
         <RouterView v-slot="{Component}">
           <component :is="Component" :app="app"/>
         </RouterView>
-      </section>
+      </a-scrollbar>
     </div>
   </section>
 </template>

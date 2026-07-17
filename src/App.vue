@@ -2660,11 +2660,11 @@ const viewModel = reactive({
       </button>
     </aside>
 
-    <section class="content">
+    <a-scrollbar outer-class="content" class="content-scroll-container" :disable-horizontal="true">
       <RouterView v-slot="{ Component }">
         <component :is="Component" :app="viewModel"/>
       </RouterView>
-    </section>
+    </a-scrollbar>
 
     <ModelModal :app="viewModel"/>
     <UnsavedChangesModal :app="viewModel"/>
@@ -2680,12 +2680,19 @@ const viewModel = reactive({
   background-color: #18181b;
 }
 
+html,
+body,
+#app {
+  height: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  overflow: hidden;
 }
 </style>
 
@@ -2956,13 +2963,16 @@ textarea:focus {
   top: calc(100% + 4px);
   left: 0;
   width: 100%;
-  max-height: 220px;
-  overflow-y: auto;
-  padding: 4px;
   border: 1px solid #3f3f46;
   border-radius: 6px;
   background: #27272a;
   box-shadow: 0 8px 24px #0008;
+}
+
+.combo-menu-container {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
 }
 
 .combo-option-row {
@@ -3223,6 +3233,10 @@ textarea:focus {
 .settings-subpage {
   min-width: 0;
   min-height: 0;
+}
+
+.settings-subpage-container {
+  height: 100%;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -3318,9 +3332,14 @@ textarea:focus {
 }
 
 .provider-list {
-  display: flex;
   min-height: 0;
   flex: 1;
+}
+
+.provider-list-container {
+  display: flex;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
   gap: 5px;
   overflow-y: auto;
@@ -3378,6 +3397,10 @@ textarea:focus {
 .provider-detail {
   min-width: 0;
   min-height: 0;
+}
+
+.provider-detail-container {
+  height: 100%;
   overflow-y: auto;
 }
 
@@ -3525,13 +3548,8 @@ textarea:focus {
 }
 
 .connection-modal {
-  display: flex;
   width: min(400px, 100%);
   max-height: calc(100vh - 32px);
-  flex-direction: column;
-  gap: 14px;
-  overflow-y: auto;
-  padding: 16px;
   border: 1px solid #3f3f46;
   border-radius: 8px;
   background: #1f1f23;
@@ -3577,77 +3595,6 @@ textarea:focus {
 
 .connection-modal textarea {
   width: 100%;
-}
-
-.connection-model-editor {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.connection-model-input-row {
-  display: flex;
-  gap: 7px;
-}
-
-.connection-model-input-row input {
-  min-width: 0;
-  flex: 1;
-}
-
-.connection-model-input-row button {
-  flex: 0 0 auto;
-  padding: 6px 12px;
-  border: 1px solid #52525b;
-  border-radius: 6px;
-  background: #27272a;
-  color: #e4e4e7;
-  font: inherit;
-  cursor: pointer;
-}
-
-.connection-model-list {
-  display: flex;
-  max-height: 138px;
-  flex-wrap: wrap;
-  gap: 6px;
-  overflow-y: auto;
-}
-
-.connection-model-chip {
-  display: inline-flex;
-  max-width: 100%;
-  min-height: 26px;
-  align-items: center;
-  gap: 4px;
-  padding-left: 8px;
-  border: 1px solid #52525b;
-  border-radius: 4px;
-  background: #323237;
-  color: #d4d4d8;
-  font-size: 12px;
-}
-
-.connection-model-chip > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.connection-model-chip button {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #a1a1aa;
-  cursor: pointer;
-}
-
-.connection-model-chip button:hover {
-  color: #fca5a5;
 }
 
 .modal-error {
@@ -3713,6 +3660,18 @@ textarea:focus {
   box-shadow: 0 16px 48px #000a;
 }
 
+.connection-modal-container {
+  max-height: calc(100vh - 34px);
+  overflow-y: auto;
+}
+
+.connection-modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
 .unsaved-changes-modal > p {
   margin: 12px 0 18px;
   color: #a1a1aa;
@@ -3726,11 +3685,17 @@ textarea:focus {
 .content {
   flex: 1;
   min-width: 0;
-  padding: 16px;
-  overflow-y: auto;
+  min-height: 0;
+}
+
+.content-scroll-container {
   display: flex;
+  height: 100%;
+  min-width: 0;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+  padding: 16px;
 }
 
 .prompt-area {
@@ -4043,9 +4008,17 @@ textarea {
 }
 
 .log-body {
+  min-height: 0;
+}
+
+.log-body-container {
+  height: 100%;
+  overflow: auto;
+}
+
+.log-body pre {
   margin: 0;
   padding: 8px 12px;
-  overflow: auto;
   font-family: Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
@@ -4211,9 +4184,14 @@ textarea {
 }
 
 .conversation-list {
-  display: flex;
   min-height: 0;
   flex: 1;
+}
+
+.conversation-list-container {
+  display: flex;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
   gap: 5px;
   overflow-y: auto;
@@ -4322,12 +4300,20 @@ textarea {
 }
 
 .chat-messages {
-  display: flex;
   flex: 1;
   min-height: 240px;
+}
+
+.chat-messages-container {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.chat-messages-content {
+  display: flex;
+  min-height: 100%;
   flex-direction: column;
   gap: 14px;
-  overflow-y: auto;
   padding: 10px 2px;
 }
 
@@ -4571,19 +4557,6 @@ textarea {
   min-height: 78px;
   resize: vertical;
   background: #211f1e;
-}
-
-.canvas-node-output {
-  max-height: 180px;
-  overflow-y: auto;
-  padding: 8px;
-  border: 1px solid #3f3f46;
-  border-radius: 6px;
-  color: #d4d4d8;
-  font-size: 12px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .canvas-node-actions {
@@ -4856,7 +4829,7 @@ textarea {
 }
 
 @media (max-width: 760px) {
-  .content {
+  .content-scroll-container {
     padding: 12px;
     gap: 12px;
   }

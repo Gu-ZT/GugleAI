@@ -7,7 +7,7 @@ defineProps<{app: any}>();
     <h2>模型设置</h2>
     <div class="provider-settings-layout">
       <aside class="provider-sidebar" aria-label="提供商列表">
-        <div class="provider-list">
+        <a-scrollbar outer-class="provider-list" class="provider-list-container" :disable-horizontal="true">
           <button
               v-for="provider in app.providerList"
               :key="provider.id"
@@ -21,11 +21,16 @@ defineProps<{app: any}>();
             <small v-if="app.providerDraftIsNew && app.selectedProviderId === provider.id">未保存</small>
             <small v-else>{{ provider.models.length }} 个模型</small>
           </button>
-        </div>
+        </a-scrollbar>
         <button type="button" class="provider-add-button" @click="app.addProviderDraft">＋ 添加提供商</button>
       </aside>
 
-      <section v-if="app.selectedProvider" class="provider-detail">
+      <a-scrollbar
+          v-if="app.selectedProvider"
+          outer-class="provider-detail"
+          class="provider-detail-container"
+          :disable-horizontal="true"
+      >
         <form class="provider-editor" @submit.prevent="app.saveConnectionDraft">
           <div class="provider-detail-header">
             <h3>{{ app.providerDraftIsNew ? '添加提供商' : '提供商信息' }}</h3>
@@ -108,7 +113,7 @@ defineProps<{app: any}>();
             <button type="submit" class="modal-save">保存更改</button>
           </div>
         </form>
-      </section>
+      </a-scrollbar>
     </div>
   </div>
 </template>

@@ -26,7 +26,7 @@ function saveRename() {
         <button type="button" class="new-conversation-button" :disabled="app.chatLoading" @click="app.createChatConversation">
           <IconPlus aria-hidden="true"/><span>新建对话</span>
         </button>
-        <div class="conversation-list">
+        <a-scrollbar outer-class="conversation-list" class="conversation-list-container" :disable-horizontal="true">
           <article
               v-for="conversation in app.chatConversations"
               :key="conversation.id"
@@ -48,7 +48,7 @@ function saveRename() {
               </div>
             </template>
           </article>
-        </div>
+        </a-scrollbar>
       </aside>
 
       <div class="chat-main">
@@ -58,27 +58,29 @@ function saveRename() {
           </div>
           <a-button size="small" :disabled="app.chatLoading || app.chatMessages.length === 0" @click="app.clearChat">清空当前对话</a-button>
         </div>
-        <div class="chat-messages" aria-live="polite">
-          <div v-if="app.chatMessages.length === 0" class="chat-empty">开始一段文字对话</div>
-          <article v-for="message in app.chatMessages" :key="message.id" class="chat-message" :class="message.role">
-            <div class="chat-message-header">
-              <div class="chat-role">{{ message.role === 'user' ? '你' : '助手' }}</div>
-              <button
-                  type="button"
-                  class="chat-copy-button"
-                  :title="app.chatCopiedMessageId === message.id ? '已复制' : '复制消息'"
-                  :aria-label="app.chatCopiedMessageId === message.id ? '已复制' : '复制消息'"
-                  @click="app.copyChatMessage(message.id, message.content)"
-              >
-                <IconCheck v-if="app.chatCopiedMessageId === message.id"/>
-                <IconCopy v-else/>
-              </button>
-            </div>
-            <p>{{ message.content }}</p>
-            <div v-if="message.modelLabel" class="chat-message-model">{{ message.modelLabel }}</div>
-          </article>
-          <div v-if="app.chatLoading" class="chat-message assistant chat-thinking">正在思考...</div>
-        </div>
+        <a-scrollbar outer-class="chat-messages" class="chat-messages-container" :disable-horizontal="true" aria-live="polite">
+          <div class="chat-messages-content">
+            <div v-if="app.chatMessages.length === 0" class="chat-empty">开始一段文字对话</div>
+            <article v-for="message in app.chatMessages" :key="message.id" class="chat-message" :class="message.role">
+              <div class="chat-message-header">
+                <div class="chat-role">{{ message.role === 'user' ? '你' : '助手' }}</div>
+                <button
+                    type="button"
+                    class="chat-copy-button"
+                    :title="app.chatCopiedMessageId === message.id ? '已复制' : '复制消息'"
+                    :aria-label="app.chatCopiedMessageId === message.id ? '已复制' : '复制消息'"
+                    @click="app.copyChatMessage(message.id, message.content)"
+                >
+                  <IconCheck v-if="app.chatCopiedMessageId === message.id"/>
+                  <IconCopy v-else/>
+                </button>
+              </div>
+              <p>{{ message.content }}</p>
+              <div v-if="message.modelLabel" class="chat-message-model">{{ message.modelLabel }}</div>
+            </article>
+            <div v-if="app.chatLoading" class="chat-message assistant chat-thinking">正在思考...</div>
+          </div>
+        </a-scrollbar>
         <p v-if="app.chatError" class="error">{{ app.chatError }}</p>
         <div class="chat-composer">
           <textarea v-model="app.chatDraft" rows="4" placeholder="输入消息..." @keydown.ctrl.enter="app.sendChatMessage"></textarea>

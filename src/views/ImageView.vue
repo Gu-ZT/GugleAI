@@ -122,7 +122,12 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
                     @click="app.retryStatusCodeMenuOpen = !app.retryStatusCodeMenuOpen"
                 ><span class="chevron" aria-hidden="true"></span></button>
               </div>
-              <div v-if="app.retryStatusCodeMenuOpen && app.retryEnabled" class="combo-menu">
+              <a-scrollbar
+                  v-if="app.retryStatusCodeMenuOpen && app.retryEnabled"
+                  outer-class="combo-menu"
+                  class="combo-menu-container"
+                  :disable-horizontal="true"
+              >
                 <div
                     v-for="code in app.filteredRetryStatusCodeOptions"
                     :key="code"
@@ -145,7 +150,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
                   <span aria-hidden="true">＋</span><span>添加并选择 {{ app.retryStatusCodeInputValue }}</span>
                 </button>
                 <p v-if="app.filteredRetryStatusCodeOptions.length === 0 && !app.showRetryStatusCodeInputAction" class="combo-empty">无匹配项</p>
-              </div>
+              </a-scrollbar>
             </div>
           </div>
           <label>

@@ -13,7 +13,9 @@ defineProps<{app: any}>();
       <div class="log-header">
         <span>运行日志（本次会话 {{ app.logs.length }} 条）</span>
       </div>
-      <pre class="log-body">{{ app.logs.length ? app.logs.join("\n") : "暂无日志" }}</pre>
+      <a-scrollbar outer-class="log-body" class="log-body-container">
+        <pre>{{ app.logs.length ? app.logs.join("\n") : "暂无日志" }}</pre>
+      </a-scrollbar>
     </div>
   </div>
 </template>
