@@ -42,19 +42,15 @@ defineProps<{app: any}>();
             </div>
             <div class="canvas-node-config nodrag">
               <label>
-                API 连接
-                <select :value="data.connectionId" @change="app.onCanvasNodeConnectionChange(id, $event)">
-                  <option v-for="profile in app.connectionProfiles" :key="profile.id" :value="profile.id">
-                    {{ profile.endpoint }} · {{ app.maskApiKey(profile.apiKey) }}
-                  </option>
-                </select>
-              </label>
-              <label>
                 模型
-                <select v-model="data.model">
-                  <option v-for="modelName in app.canvasConnectionModels(data.connectionId)" :key="modelName" :value="modelName">
-                    {{ modelName }}
-                  </option>
+                <select :value="app.canvasNodeModelSelection(data)" @change="app.onCanvasNodeModelChange(id, $event)">
+                  <optgroup v-for="group in app.textModelGroups" :key="group.provider.id" :label="group.provider.name">
+                    <option
+                        v-for="providerModel in group.models"
+                        :key="providerModel.id"
+                        :value="app.modelSelectionKey(group.provider.id, providerModel.id)"
+                    >{{ app.modelDisplayName(providerModel) }}</option>
+                  </optgroup>
                 </select>
               </label>
             </div>
@@ -79,19 +75,15 @@ defineProps<{app: any}>();
             </div>
             <div class="canvas-node-config nodrag">
               <label>
-                API 连接
-                <select :value="data.connectionId" @change="app.onCanvasNodeConnectionChange(id, $event)">
-                  <option v-for="profile in app.connectionProfiles" :key="profile.id" :value="profile.id">
-                    {{ profile.endpoint }} · {{ app.maskApiKey(profile.apiKey) }}
-                  </option>
-                </select>
-              </label>
-              <label>
                 模型
-                <select v-model="data.model">
-                  <option v-for="modelName in app.canvasConnectionModels(data.connectionId)" :key="modelName" :value="modelName">
-                    {{ modelName }}
-                  </option>
+                <select :value="app.canvasNodeModelSelection(data)" @change="app.onCanvasNodeModelChange(id, $event)">
+                  <optgroup v-for="group in app.imageModelGroups" :key="group.provider.id" :label="group.provider.name">
+                    <option
+                        v-for="providerModel in group.models"
+                        :key="providerModel.id"
+                        :value="app.modelSelectionKey(group.provider.id, providerModel.id)"
+                    >{{ app.modelDisplayName(providerModel) }}</option>
+                  </optgroup>
                 </select>
               </label>
             </div>

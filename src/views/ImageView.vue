@@ -5,6 +5,7 @@ const props = defineProps<{app: any}>();
 
 const fileInput = ref<HTMLInputElement>();
 const retryStatusCodePicker = ref<HTMLElement>();
+const advancedOpen = ref(false);
 
 function closeRetryPicker(event: PointerEvent) {
   if (!retryStatusCodePicker.value?.contains(event.target as Node)) {
@@ -51,8 +52,17 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
       </div>
 
       <section class="image-generation-config" aria-labelledby="image-generation-config-title">
-        <strong id="image-generation-config-title">生图配置</strong>
-        <div class="image-generation-config-grid">
+        <button
+            id="image-generation-config-title"
+            type="button"
+            class="advanced-config-toggle"
+            :aria-expanded="advancedOpen"
+            @click="advancedOpen = !advancedOpen"
+        >
+          <span>高级配置</span>
+          <span class="chevron" :class="{ open: advancedOpen }" aria-hidden="true"></span>
+        </button>
+        <div v-if="advancedOpen" class="image-generation-config-grid">
           <label>
             接口模式
             <select v-model="app.apiMode">
@@ -148,6 +158,18 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
       <div class="actions">
         <span class="hint">{{ app.hintText }}</span>
         <div class="action-buttons">
+          <label class="action-model-picker">
+            <span>模型</span>
+            <select v-model="app.imageModelSelection" :disabled="app.imageModelGroups.length === 0">
+              <optgroup v-for="group in app.imageModelGroups" :key="group.provider.id" :label="group.provider.name">
+                <option
+                    v-for="providerModel in group.models"
+                    :key="providerModel.id"
+                    :value="app.modelSelectionKey(group.provider.id, providerModel.id)"
+                >{{ app.modelDisplayName(providerModel) }}</option>
+              </optgroup>
+            </select>
+          </label>
           <button
               v-if="app.loading"
               type="button"

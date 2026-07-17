@@ -7,15 +7,16 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 ## Features
 
 - **Multiple workspaces**: switch between image generation, text chat, and the infinite canvas from a compact left navigation rail; each workspace is now a separate Vue Router page
-- **Custom connections**: the previous sidebar controls now live on a dedicated settings page; save API endpoints and API keys together as connection profiles, switch them from one dropdown, and add or edit each connection's available model list in a separate modal; keys only show redacted previews; `/v1` is appended automatically when an endpoint omits it
-- **Organized settings**: the Settings page has its own sidebar and nested routes for Model Settings, General Settings, and Logs, separating connections and defaults, updates, and runtime diagnostics
-- **Text chat**: hold continuous text conversations through `/chat/completions`; text model IDs can be entered and saved as options while reusing the active API connection and system proxy
-- **Infinite canvas**: pan and zoom freely while each node selects its own API connection and one of that connection's models; text generation creates a connected text child, while uploaded or generated image nodes are reference-only inputs that can feed a new empty image node and produce multiple image children
+- **Providers and models**: add and name providers, each with its own API endpoint, key, and model list; models support an ID, optional display name and description, image-model flag, and context length through a dedicated modal
+- **Organized settings**: the Settings page has nested routes for Model Settings, General Settings, and full-size Logs; Model Settings adds a secondary provider sidebar
+- **Text chat**: use `/chat/completions` across persistent multiple conversations with create, rename, delete, and per-message copy actions; assistant messages show the actual model, while first exchanges can generate titles asynchronously with a chosen model or title generation can be disabled
+- **Grouped model selection**: Image Generation, Chat, and Infinite Canvas nodes select models grouped by provider, and each request automatically uses that model's provider endpoint and key
+- **Infinite canvas**: pan and zoom freely; text generation creates a connected text child, while uploaded or generated image nodes are reference-only inputs that can feed a new empty image node and produce multiple image children
 - **Paste-to-configure**: press Ctrl+V to add and switch to an imported connection, supporting newapi channel JSON (`{"_type":"newapi_channel_conn",...}`) and Codex CLI `config.toml` (extracts `base_url`)
 - **Text to image**: generate images from a prompt via `/images/generations`
 - **Reference images**: attach any number of reference images via file picker, drag & drop, or clipboard paste
 - **API mode**: Auto / Images API / Chat API; in Auto mode, multiple reference images are routed through `/chat/completions`, working around relays whose edits endpoint only accepts a single image
-- **Image generation settings**: API mode, dimensions, output count, and request retries are grouped on the Image Generation page; retry status codes support persistent custom options and multi-selection
+- **Advanced image settings**: API mode, dimensions, output count, and retries live in an Advanced section that is collapsed by default and must be opened manually; retry status codes support persistent custom options and multi-selection
 - **Generation control**: stop the current task while generating, cancelling the API request, retry delay and result downloads
 - **Diagnostic logs**: record generation task IDs, request stages, durations, body sizes, proxy state and redacted error details to help diagnose timeouts and transport failures
 - **Generation options**: image size (1024×1024 / landscape / portrait / auto) and count
@@ -45,10 +46,11 @@ pnpm tauri build
 
 ## Usage
 
-1. Use the left navigation icons to switch between **Image Generation**, **Chat**, and **Infinite Canvas**; open **Settings** at the bottom left and use its secondary sidebar for models, general options, or logs
-2. On Image Generation, enter a prompt, add optional references, and configure API mode, dimensions, output count, and retries; use Chat for continuous text conversations
-3. In Infinite Canvas, select a connection and model per node; text generation creates a new text child, and image-bearing nodes must be connected as references to a new empty image node before generation
-4. Image previews remain available; double-click to enlarge, or right-click to copy the image or prompt, use it as a reference, save it, delete it, or clear the full preview history
+1. In Model Settings, add a provider with its endpoint and key, then maintain that provider's models through the model modal
+2. Choose models grouped by provider in Image Generation, Chat, and Infinite Canvas; manually expand Advanced settings for image request options
+3. Create and rename persistent conversations in Chat; under General Settings, choose a title model, use the active chat model, or disable title generation
+4. In Infinite Canvas, text generation creates a new text child, and image-bearing nodes must be connected as references to a new empty image node before generation
+5. Image previews remain available; double-click to enlarge, or right-click to copy the image or prompt, use it as a reference, save it, delete it, or clear the full preview history
 
 ## License
 

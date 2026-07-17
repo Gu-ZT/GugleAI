@@ -16,7 +16,8 @@ import {OpenAIConnection} from "./api";
 import {CanvasGraph, type CanvasImageAsset, type CanvasNode, type CanvasNodeData} from "./canvas";
 import {ChatSession} from "./chat";
 import {workspaceModeFromRoute, type WorkspaceMode} from "./router";
-import ConnectionModal from "./components/modals/ConnectionModal.vue";
+import ProviderModal from "./components/modals/ProviderModal.vue";
+import ModelModal from "./components/modals/ModelModal.vue";
 import ResultOverlays from "./components/modals/ResultOverlays.vue";
 
 interface RefImage {
@@ -54,9 +55,23 @@ interface RetryConfig {
 
 interface ConnectionProfile {
   id: string;
+  name: string;
   endpoint: string;
   apiKey: string;
-  models: string[];
+  models: ProviderModel[];
+}
+
+interface ProviderModel {
+  id: string;
+  displayName: string;
+  description: string;
+  isImage: boolean;
+  contextLength: number;
+}
+
+interface ResolvedModel {
+  provider: ConnectionProfile;
+  model: ProviderModel;
 }
 
 
@@ -109,26 +124,42 @@ async function fetch(input: string, init?: RequestInit & ClientOptions): Promise
 const endpoint = ref(DEFAULT_ENDPOINT);
 const apiKey = ref("");
 const connectionProfiles = ref<ConnectionProfile[]>([
-  {id: DEFAULT_CONNECTION_ID, endpoint: DEFAULT_ENDPOINT, apiKey: "", models: [...DEFAULT_CONNECTION_MODELS]},
+  {
+    id: DEFAULT_CONNECTION_ID,
+    name: "OpenAI",
+    endpoint: DEFAULT_ENDPOINT,
+    apiKey: "",
+    models: defaultProviderModels(),
+  },
 ]);
 const activeConnectionId = ref(DEFAULT_CONNECTION_ID);
+const selectedProviderId = ref(DEFAULT_CONNECTION_ID);
 const connectionMenuOpen = ref(false);
 const connectionModalOpen = ref(false);
 const connectionDraftId = ref("");
+const connectionDraftName = ref("");
 const connectionDraftEndpoint = ref("");
 const connectionDraftApiKey = ref("");
-const connectionDraftModels = ref<string[]>([]);
-const connectionDraftModelInput = ref("");
 const connectionDraftError = ref("");
+const modelModalOpen = ref(false);
+const modelDraftProviderId = ref("");
+const modelDraftOriginalId = ref("");
+const modelDraftId = ref("");
+const modelDraftDisplayName = ref("");
+const modelDraftDescription = ref("");
+const modelDraftIsImage = ref(false);
+const modelDraftContextLength = ref(256000);
+const modelDraftError = ref("");
 const model = ref("gpt-image-2");
 const modelOptions = ref([...DEFAULT_MODEL_OPTIONS]);
-const modelMenuOpen = ref(false);
-const modelShowAll = ref(true);
 const route = useRoute();
 const workspaceRouter = useRouter();
 const appMode = computed(() => workspaceModeFromRoute(route.name));
 const textModel = ref("gpt-4o-mini");
 const textModelOptions = ref([...DEFAULT_TEXT_MODEL_OPTIONS]);
+const imageModelSelection = ref("");
+const chatModelSelection = ref("");
+const titleModelSelection = ref("current");
 // auto: 多参考图自动改走 chat 接口(部分中转的 edits 接口只支持单图)
 const apiMode = ref<"auto" | "images" | "chat">("auto");
 const retryEnabled = ref(false);
@@ -154,11 +185,16 @@ const enlargedResult = ref<ResultImage | null>(null);
 const previewNotice = ref("");
 
 const chatSession = new ChatSession();
+const chatConversations = chatSession.conversations;
+const activeChatConversationId = chatSession.activeConversationId;
+const activeChatConversation = computed(() => chatSession.activeConversation);
 const chatMessages = chatSession.messages;
 const chatDraft = chatSession.draft;
 const chatLoading = chatSession.loading;
 const chatStopping = chatSession.stopping;
 const chatError = chatSession.error;
+const chatCopiedMessageId = ref("");
+const titleGenerationControllers = new Map<string, AbortController>();
 
 const canvasGraph = new CanvasGraph();
 const canvasNodes = canvasGraph.nodes;
@@ -173,6 +209,7 @@ let generationAbortController: AbortController | null = null;
 let activeGenerationId: number | null = null;
 let resultHistoryDbPromise: Promise<IDBDatabase> | null = null;
 let previewNoticeTimer: number | null = null;
+let chatCopyNoticeTimer: number | null = null;
 
 function redactSensitiveText(value: unknown): string {
   let text = String(value ?? "");
@@ -385,17 +422,6 @@ const hintText = computed(() => {
   const useChat = apiMode.value === "chat" || (apiMode.value === "auto" && n > 1);
   const api = useChat ? "Chat 接口" : n > 0 ? "图像编辑接口" : "文生图接口";
   return n > 0 ? `${n} 张参考图 · ${api}` : `无参考图 · ${api}`;
-});
-
-const filteredModelOptions = computed(() => {
-  const query = model.value.trim().toLowerCase();
-  if (modelShowAll.value || !query) return modelOptions.value;
-  return modelOptions.value.filter((option) => option.toLowerCase().includes(query));
-});
-
-const canAddModelOption = computed(() => {
-  const value = model.value.trim();
-  return value.length > 0 && !modelOptions.value.includes(value);
 });
 
 const retryStatusCodeInputValue = computed(() => {
@@ -757,11 +783,40 @@ function createConnectionId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `connection-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function normalizeConnectionModels(value: unknown, fallback = DEFAULT_CONNECTION_MODELS): string[] {
-  const models = Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-      : [];
-  return [...new Set((models.length > 0 ? models : fallback).map((item) => item.trim()))];
+function defaultProviderModels(): ProviderModel[] {
+  return normalizeProviderModels(DEFAULT_CONNECTION_MODELS);
+}
+
+function normalizeProviderModels(
+    value: unknown,
+    fallback: string[] = DEFAULT_CONNECTION_MODELS
+): ProviderModel[] {
+  const source = Array.isArray(value) ? value : fallback;
+  const models: ProviderModel[] = [];
+  const usedIds = new Set<string>();
+  for (const item of source) {
+    const record = item && typeof item === "object" ? item as Record<string, unknown> : null;
+    const id = typeof item === "string"
+        ? item.trim()
+        : typeof record?.id === "string"
+            ? record.id.trim()
+            : "";
+    if (!id || usedIds.has(id)) continue;
+    const contextLengthValue = Number(record?.contextLength ?? 256000);
+    models.push({
+      id,
+      displayName: typeof record?.displayName === "string" ? record.displayName.trim() : "",
+      description: typeof record?.description === "string" ? record.description.trim() : "",
+      isImage: typeof record?.isImage === "boolean"
+          ? record.isImage
+          : DEFAULT_MODEL_OPTIONS.includes(id),
+      contextLength: Number.isInteger(contextLengthValue) && contextLengthValue > 0
+          ? contextLengthValue
+          : 256000,
+    });
+    usedIds.add(id);
+  }
+  return models;
 }
 
 function normalizeConnectionProfiles(
@@ -771,44 +826,128 @@ function normalizeConnectionProfiles(
   if (!Array.isArray(value)) return [];
   const profiles: ConnectionProfile[] = [];
   const usedIds = new Set<string>();
-  const usedPairs = new Set<string>();
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
     const record = item as Record<string, unknown>;
     const profileEndpoint = typeof record.endpoint === "string" ? record.endpoint.trim() : "";
     const profileApiKey = typeof record.apiKey === "string" ? record.apiKey.trim() : "";
     if (!profileEndpoint) continue;
-    const pair = `${profileEndpoint}\u0000${profileApiKey}`;
-    if (usedPairs.has(pair)) continue;
     let id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : createConnectionId();
     if (usedIds.has(id)) id = createConnectionId();
     profiles.push({
       id,
+      name: typeof record.name === "string" && record.name.trim()
+          ? record.name.trim()
+          : providerNameFromEndpoint(profileEndpoint, profiles.length + 1),
       endpoint: profileEndpoint,
       apiKey: profileApiKey,
-      models: normalizeConnectionModels(record.models, fallbackModels),
+      models: normalizeProviderModels(record.models, fallbackModels),
     });
     usedIds.add(id);
-    usedPairs.add(pair);
   }
   return profiles;
 }
 
-function connectionOptionNumber(profile: ConnectionProfile): number {
-  return connectionProfiles.value.findIndex((item) => item.id === profile.id) + 1;
+function providerNameFromEndpoint(endpointValue: string, index: number): string {
+  try {
+    return new URL(endpointValue).hostname || `提供商 ${index}`;
+  } catch {
+    return `提供商 ${index}`;
+  }
+}
+
+function modelSelectionKey(providerId: string, modelId: string): string {
+  return `${encodeURIComponent(providerId)}|${encodeURIComponent(modelId)}`;
+}
+
+function resolveModelSelection(value: string): ResolvedModel | null {
+  const separator = value.indexOf("|");
+  if (separator < 0) return null;
+  let providerId = "";
+  let modelId = "";
+  try {
+    providerId = decodeURIComponent(value.slice(0, separator));
+    modelId = decodeURIComponent(value.slice(separator + 1));
+  } catch {
+    return null;
+  }
+  const provider = connectionProfiles.value.find((item) => item.id === providerId);
+  const providerModel = provider?.models.find((item) => item.id === modelId);
+  return provider && providerModel ? {provider, model: providerModel} : null;
+}
+
+function modelDisplayName(modelValue: ProviderModel): string {
+  return modelValue.displayName || modelValue.id;
+}
+
+function resolvedModelLabel(resolved: ResolvedModel): string {
+  return `${modelDisplayName(resolved.model)} · ${resolved.provider.name}`;
+}
+
+const imageModelGroups = computed(() => connectionProfiles.value
+    .map((provider) => ({
+      provider,
+      models: provider.models.filter((item) => item.isImage),
+    }))
+    .filter((group) => group.models.length > 0));
+
+const textModelGroups = computed(() => connectionProfiles.value
+    .map((provider) => ({
+      provider,
+      models: provider.models.filter((item) => !item.isImage),
+    }))
+    .filter((group) => group.models.length > 0));
+
+const selectedProvider = computed(() => connectionProfiles.value.find(
+    (provider) => provider.id === selectedProviderId.value
+) ?? connectionProfiles.value[0]);
+
+function firstModelSelection(image: boolean): string {
+  const group = (image ? imageModelGroups.value : textModelGroups.value)[0];
+  const firstModel = group?.models[0];
+  return group && firstModel ? modelSelectionKey(group.provider.id, firstModel.id) : "";
+}
+
+function ensureModelSelections(): void {
+  const selectedImage = resolveModelSelection(imageModelSelection.value);
+  if (!selectedImage?.model.isImage) imageModelSelection.value = firstModelSelection(true);
+  const selectedText = resolveModelSelection(chatModelSelection.value);
+  if (!selectedText || selectedText.model.isImage) chatModelSelection.value = firstModelSelection(false);
+  if (
+    titleModelSelection.value !== "current" &&
+    titleModelSelection.value !== "none" &&
+    (!resolveModelSelection(titleModelSelection.value) ||
+      resolveModelSelection(titleModelSelection.value)?.model.isImage)
+  ) {
+    titleModelSelection.value = "current";
+  }
+  const imageResolved = resolveModelSelection(imageModelSelection.value);
+  const textResolved = resolveModelSelection(chatModelSelection.value);
+  if (imageResolved) model.value = imageResolved.model.id;
+  if (textResolved) textModel.value = textResolved.model.id;
+  if (!connectionProfiles.value.some((item) => item.id === selectedProviderId.value)) {
+    selectedProviderId.value = connectionProfiles.value[0]?.id ?? "";
+  }
 }
 
 function selectConnection(profile: ConnectionProfile) {
   activeConnectionId.value = profile.id;
+  selectedProviderId.value = profile.id;
   endpoint.value = profile.endpoint;
   apiKey.value = profile.apiKey;
   connectionMenuOpen.value = false;
 }
 
+function selectProvider(providerId: string) {
+  const provider = connectionProfiles.value.find((item) => item.id === providerId);
+  if (provider) selectConnection(provider);
+}
+
 function addAndSelectConnection(
     endpointValue: string,
     apiKeyValue: string,
-    modelsValue: string[] = DEFAULT_CONNECTION_MODELS
+    modelsValue: Array<string | ProviderModel> = DEFAULT_CONNECTION_MODELS,
+    nameValue = ""
 ) {
   const profileEndpoint = endpointValue.trim();
   const profileApiKey = apiKeyValue.trim();
@@ -822,21 +961,22 @@ function addAndSelectConnection(
   }
   const profile: ConnectionProfile = {
     id: createConnectionId(),
+    name: nameValue.trim() || providerNameFromEndpoint(profileEndpoint, connectionProfiles.value.length + 1),
     endpoint: profileEndpoint,
     apiKey: profileApiKey,
-    models: normalizeConnectionModels(modelsValue),
+    models: normalizeProviderModels(modelsValue),
   };
   connectionProfiles.value = [...connectionProfiles.value, profile];
   selectConnection(profile);
+  ensureModelSelections();
   return true;
 }
 
 function openConnectionModal(profile?: ConnectionProfile) {
   connectionDraftId.value = profile?.id ?? "";
+  connectionDraftName.value = profile?.name ?? "";
   connectionDraftEndpoint.value = profile?.endpoint ?? "";
   connectionDraftApiKey.value = profile?.apiKey ?? "";
-  connectionDraftModels.value = [...(profile?.models ?? DEFAULT_CONNECTION_MODELS)];
-  connectionDraftModelInput.value = "";
   connectionDraftError.value = "";
   connectionMenuOpen.value = false;
   connectionModalOpen.value = true;
@@ -845,66 +985,155 @@ function openConnectionModal(profile?: ConnectionProfile) {
 function closeConnectionModal() {
   connectionModalOpen.value = false;
   connectionDraftId.value = "";
+  connectionDraftName.value = "";
   connectionDraftEndpoint.value = "";
   connectionDraftApiKey.value = "";
-  connectionDraftModels.value = [];
-  connectionDraftModelInput.value = "";
   connectionDraftError.value = "";
-}
-
-function addConnectionDraftModel() {
-  const draft = connectionDraftModelInput.value.trim();
-  if (!draft) return;
-  if (!connectionDraftModels.value.includes(draft)) {
-    connectionDraftModels.value = [...connectionDraftModels.value, draft];
-  }
-  connectionDraftModelInput.value = "";
-  connectionDraftError.value = "";
-}
-
-function removeConnectionDraftModel(modelName: string) {
-  connectionDraftModels.value = connectionDraftModels.value.filter((item) => item !== modelName);
 }
 
 function saveConnectionDraft() {
-  if (!connectionDraftEndpoint.value.trim()) {
-    connectionDraftError.value = "请输入 API 端点";
-    return;
-  }
-  addConnectionDraftModel();
-  if (connectionDraftModels.value.length === 0) {
-    connectionDraftError.value = "请至少添加一个可用模型";
-    return;
-  }
   const profileEndpoint = connectionDraftEndpoint.value.trim();
-  const profileApiKey = connectionDraftApiKey.value.trim();
-  const duplicate = connectionProfiles.value.find(
-      (profile) => profile.id !== connectionDraftId.value &&
-          profile.endpoint === profileEndpoint && profile.apiKey === profileApiKey
-  );
-  if (duplicate) {
-    connectionDraftError.value = "相同端点和 API Key 的连接已存在";
+  if (!connectionDraftName.value.trim()) {
+    connectionDraftError.value = "请输入提供商名称";
     return;
   }
+  if (!profileEndpoint) {
+    connectionDraftError.value = "请输入 API 地址";
+    return;
+  }
+  const profileApiKey = connectionDraftApiKey.value.trim();
   if (connectionDraftId.value) {
+    const current = connectionProfiles.value.find((item) => item.id === connectionDraftId.value);
+    if (!current) return;
     const updated: ConnectionProfile = {
-      id: connectionDraftId.value,
+      ...current,
+      name: connectionDraftName.value.trim(),
       endpoint: profileEndpoint,
       apiKey: profileApiKey,
-      models: [...connectionDraftModels.value],
     };
     connectionProfiles.value = connectionProfiles.value.map(
         (profile) => profile.id === updated.id ? updated : profile
     );
     if (activeConnectionId.value === updated.id) selectConnection(updated);
-    for (const node of canvasNodes.value) {
-      if (node.data.connectionId !== updated.id || updated.models.includes(node.data.model)) continue;
-      updateCanvasNodeData(node.id, {model: updated.models[0]});
-    }
   } else {
-    addAndSelectConnection(profileEndpoint, profileApiKey, connectionDraftModels.value);
+    const profile: ConnectionProfile = {
+      id: createConnectionId(),
+      name: connectionDraftName.value.trim(),
+      endpoint: profileEndpoint,
+      apiKey: profileApiKey,
+      models: [],
+    };
+    connectionProfiles.value = [...connectionProfiles.value, profile];
+    selectConnection(profile);
   }
+  ensureModelSelections();
   closeConnectionModal();
+}
+
+function openModelModal(providerId: string, providerModel?: ProviderModel) {
+  modelDraftProviderId.value = providerId;
+  modelDraftOriginalId.value = providerModel?.id ?? "";
+  modelDraftId.value = providerModel?.id ?? "";
+  modelDraftDisplayName.value = providerModel?.displayName ?? "";
+  modelDraftDescription.value = providerModel?.description ?? "";
+  modelDraftIsImage.value = providerModel?.isImage ?? false;
+  modelDraftContextLength.value = providerModel?.contextLength ?? 256000;
+  modelDraftError.value = "";
+  modelModalOpen.value = true;
+}
+
+function closeModelModal() {
+  modelModalOpen.value = false;
+  modelDraftProviderId.value = "";
+  modelDraftOriginalId.value = "";
+  modelDraftId.value = "";
+  modelDraftDisplayName.value = "";
+  modelDraftDescription.value = "";
+  modelDraftIsImage.value = false;
+  modelDraftContextLength.value = 256000;
+  modelDraftError.value = "";
+}
+
+function saveModelDraft() {
+  const provider = connectionProfiles.value.find((item) => item.id === modelDraftProviderId.value);
+  const id = modelDraftId.value.trim();
+  const contextLengthValue = Number(modelDraftContextLength.value);
+  if (!provider) return;
+  if (!id) {
+    modelDraftError.value = "请输入模型 ID";
+    return;
+  }
+  if (provider.models.some((item) => item.id === id && item.id !== modelDraftOriginalId.value)) {
+    modelDraftError.value = "该提供商中已存在相同模型 ID";
+    return;
+  }
+  if (!Number.isInteger(contextLengthValue) || contextLengthValue < 1) {
+    modelDraftError.value = "上下文长度必须是大于 0 的整数";
+    return;
+  }
+  const providerModel: ProviderModel = {
+    id,
+    displayName: modelDraftDisplayName.value.trim(),
+    description: modelDraftDescription.value.trim(),
+    isImage: modelDraftIsImage.value,
+    contextLength: contextLengthValue,
+  };
+  const previousId = modelDraftOriginalId.value;
+  const models = previousId
+      ? provider.models.map((item) => item.id === previousId ? providerModel : item)
+      : [...provider.models, providerModel];
+  connectionProfiles.value = connectionProfiles.value.map(
+      (item) => item.id === provider.id ? {...item, models} : item
+  );
+  if (previousId && previousId !== id) {
+    const oldSelection = modelSelectionKey(provider.id, previousId);
+    const newSelection = modelSelectionKey(provider.id, id);
+    if (imageModelSelection.value === oldSelection) imageModelSelection.value = newSelection;
+    if (chatModelSelection.value === oldSelection) chatModelSelection.value = newSelection;
+    if (titleModelSelection.value === oldSelection) titleModelSelection.value = newSelection;
+    for (const node of canvasNodes.value) {
+      if (node.data.connectionId === provider.id && node.data.model === previousId) {
+        updateCanvasNodeData(node.id, {model: id});
+      }
+    }
+  }
+  ensureModelSelections();
+  for (const node of canvasNodes.value) {
+    if (node.data.connectionId !== provider.id || node.data.model !== id) continue;
+    const matchesNodeType = node.type === "image" ? providerModel.isImage : !providerModel.isImage;
+    if (matchesNodeType) continue;
+    const fallback = resolveModelSelection(firstModelSelection(node.type === "image"));
+    if (fallback) {
+      updateCanvasNodeData(node.id, {
+        connectionId: fallback.provider.id,
+        model: fallback.model.id,
+      });
+    }
+  }
+  closeModelModal();
+}
+
+function removeProviderModel(providerId: string, modelId: string) {
+  const provider = connectionProfiles.value.find((item) => item.id === providerId);
+  if (!provider) return;
+  connectionProfiles.value = connectionProfiles.value.map((item) =>
+    item.id === providerId
+        ? {...item, models: item.models.filter((providerModel) => providerModel.id !== modelId)}
+        : item
+  );
+  ensureModelSelections();
+  for (const node of canvasNodes.value) {
+    if (node.data.connectionId !== providerId || node.data.model !== modelId) continue;
+    const fallback = node.type === "image"
+        ? resolveModelSelection(firstModelSelection(true))
+        : resolveModelSelection(firstModelSelection(false));
+    if (fallback) {
+      updateCanvasNodeData(node.id, {
+        connectionId: fallback.provider.id,
+        model: fallback.model.id,
+      });
+    }
+  }
 }
 
 function removeConnection(profile: ConnectionProfile) {
@@ -914,11 +1143,15 @@ function removeConnection(profile: ConnectionProfile) {
   if (activeConnectionId.value === profile.id) selectConnection(remaining[0]);
   for (const node of canvasNodes.value) {
     if (node.data.connectionId !== profile.id) continue;
+    const fallback = node.type === "image"
+        ? resolveModelSelection(firstModelSelection(true))
+        : resolveModelSelection(firstModelSelection(false));
     updateCanvasNodeData(node.id, {
-      connectionId: remaining[0].id,
-      model: remaining[0].models[0] ?? "",
+      connectionId: fallback?.provider.id ?? remaining[0].id,
+      model: fallback?.model.id ?? remaining[0].models[0]?.id ?? "",
     });
   }
+  ensureModelSelections();
 }
 
 function normalizeModelOptions(value: unknown): string[] {
@@ -943,28 +1176,6 @@ function normalizeStatusCodes(value: unknown): number[] | null {
   );
   if (codes.length !== parsed.length) return null;
   return [...new Set(codes)].sort((a, b) => a - b);
-}
-
-function selectModelOption(option: string) {
-  model.value = option;
-  modelMenuOpen.value = false;
-  modelShowAll.value = true;
-}
-
-function addModelOption() {
-  const value = model.value.trim();
-  if (!value) return;
-  model.value = value;
-  if (!modelOptions.value.includes(value)) {
-    modelOptions.value = [...modelOptions.value, value];
-  }
-  modelMenuOpen.value = false;
-  modelShowAll.value = true;
-}
-
-function removeModelOption(option: string) {
-  if (DEFAULT_MODEL_OPTIONS.includes(option)) return;
-  modelOptions.value = modelOptions.value.filter((item) => item !== option);
 }
 
 function toggleRetryStatusCode(code: number) {
@@ -998,15 +1209,6 @@ function normalizeTextModelOptions(value: unknown): string[] {
   return [...new Set([...DEFAULT_TEXT_MODEL_OPTIONS, ...saved.map((option) => option.trim())])];
 }
 
-function addTextModelOption() {
-  const value = textModel.value.trim();
-  if (!value) return;
-  textModel.value = value;
-  if (!textModelOptions.value.includes(value)) {
-    textModelOptions.value = [...textModelOptions.value, value];
-  }
-}
-
 function closeResultOverlaysOnEscape(e: KeyboardEvent) {
   if (e.key !== "Escape") return;
   closeResultContextMenu();
@@ -1022,12 +1224,12 @@ onMounted(async () => {
           ? s.endpoint.trim()
           : DEFAULT_ENDPOINT;
       const savedApiKey = typeof s.apiKey === "string" ? s.apiKey.trim() : "";
-      const fallbackConnectionModels = normalizeConnectionModels([
+      const fallbackConnectionModels = [...new Set([
         ...(Array.isArray(s.modelOptions) ? s.modelOptions : []),
         ...(Array.isArray(s.textModelOptions) ? s.textModelOptions : []),
         ...(typeof s.model === "string" ? [s.model] : []),
         ...(typeof s.textModel === "string" ? [s.textModel] : []),
-      ]);
+      ].filter((item): item is string => typeof item === "string" && item.trim().length > 0))];
       const restoredProfiles = normalizeConnectionProfiles(
           s.connectionProfiles,
           fallbackConnectionModels
@@ -1035,9 +1237,10 @@ onMounted(async () => {
       if (restoredProfiles.length === 0) {
         restoredProfiles.push({
           id: savedEndpoint === DEFAULT_ENDPOINT && !savedApiKey ? DEFAULT_CONNECTION_ID : createConnectionId(),
+          name: providerNameFromEndpoint(savedEndpoint, 1),
           endpoint: savedEndpoint,
           apiKey: savedApiKey,
-          models: fallbackConnectionModels,
+          models: normalizeProviderModels(fallbackConnectionModels),
         });
       }
       connectionProfiles.value = restoredProfiles;
@@ -1071,9 +1274,23 @@ onMounted(async () => {
       if (textModel.value && !textModelOptions.value.includes(textModel.value)) {
         textModelOptions.value = [...textModelOptions.value, textModel.value];
       }
+      selectedProviderId.value = typeof s.selectedProviderId === "string"
+          ? s.selectedProviderId
+          : activeProfile.id;
+      imageModelSelection.value = typeof s.imageModelSelection === "string"
+          ? s.imageModelSelection
+          : modelSelectionKey(activeProfile.id, model.value);
+      chatModelSelection.value = typeof s.chatModelSelection === "string"
+          ? s.chatModelSelection
+          : modelSelectionKey(activeProfile.id, textModel.value);
+      titleModelSelection.value = typeof s.titleModelSelection === "string"
+          ? s.titleModelSelection
+          : "current";
+      ensureModelSelections();
     } catch {
     }
   }
+  ensureModelSelections();
   window.addEventListener("paste", onPaste);
   window.addEventListener("blur", closeResultContextMenu);
   window.addEventListener("resize", closeResultContextMenu);
@@ -1087,10 +1304,13 @@ onMounted(async () => {
 onUnmounted(() => {
   generationAbortController?.abort();
   chatSession.abort();
+  for (const controller of titleGenerationControllers.values()) controller.abort();
+  titleGenerationControllers.clear();
   for (const controller of canvasControllers.values()) controller.abort();
   canvasGraph.dispose();
   for (const image of results.value) URL.revokeObjectURL(image.previewUrl);
   if (previewNoticeTimer !== null) window.clearTimeout(previewNoticeTimer);
+  if (chatCopyNoticeTimer !== null) window.clearTimeout(chatCopyNoticeTimer);
   window.removeEventListener("paste", onPaste);
   window.removeEventListener("blur", closeResultContextMenu);
   window.removeEventListener("resize", closeResultContextMenu);
@@ -1104,6 +1324,7 @@ watch(
       apiKey,
       connectionProfiles,
       activeConnectionId,
+      selectedProviderId,
       model,
       modelOptions,
       apiMode,
@@ -1114,6 +1335,9 @@ watch(
       autoCheckUpdate,
       textModel,
       textModelOptions,
+      imageModelSelection,
+      chatModelSelection,
+      titleModelSelection,
     ],
     () => {
       localStorage.setItem(
@@ -1123,6 +1347,7 @@ watch(
             apiKey: apiKey.value,
             connectionProfiles: connectionProfiles.value,
             activeConnectionId: activeConnectionId.value,
+            selectedProviderId: selectedProviderId.value,
             model: model.value,
             modelOptions: modelOptions.value,
             apiMode: apiMode.value,
@@ -1133,10 +1358,23 @@ watch(
             autoCheckUpdate: autoCheckUpdate.value,
             textModel: textModel.value,
             textModelOptions: textModelOptions.value,
+            imageModelSelection: imageModelSelection.value,
+            chatModelSelection: chatModelSelection.value,
+            titleModelSelection: titleModelSelection.value,
           })
       );
     }
 );
+
+watch(imageModelSelection, (selection) => {
+  const resolved = resolveModelSelection(selection);
+  if (resolved?.model.isImage) model.value = resolved.model.id;
+});
+
+watch(chatModelSelection, (selection) => {
+  const resolved = resolveModelSelection(selection);
+  if (resolved && !resolved.model.isImage) textModel.value = resolved.model.id;
+});
 
 function addFile(file: File) {
   if (!file.type.startsWith("image/")) return;
@@ -1232,6 +1470,11 @@ function stopGeneration() {
 
 async function generate() {
   if (loading.value) return;
+  const selectedModel = resolveModelSelection(imageModelSelection.value);
+  if (!selectedModel || !selectedModel.model.isImage) {
+    error.value = "请先选择一个生图模型";
+    return;
+  }
   const generationPrompt = prompt.value;
   if (!generationPrompt.trim()) {
     error.value = "请输入提示词";
@@ -1247,11 +1490,12 @@ async function generate() {
   error.value = "";
 
   // 允许填裸域名(如 https://ai.example.cn),没有版本路径时自动补 /v1
-  let base = endpoint.value.trim().replace(/\/+$/, "");
-  if (!/\/v\d+(\/|$)/.test(base)) base += "/v1";
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey.value}`,
-  };
+  const selectedConnection = new OpenAIConnection(
+      selectedModel.provider.endpoint,
+      selectedModel.provider.apiKey
+  );
+  const base = selectedConnection.baseUrl;
+  const headers = selectedConnection.authHeaders;
 
   try {
     const retryConfig = getRetryConfig();
@@ -1259,7 +1503,7 @@ async function generate() {
         apiMode.value === "chat" || (apiMode.value === "auto" && refImages.value.length > 1);
     log(
         "INFO",
-        `任务=#${generationId} 开始生成: 端点=${sanitizeUrlForLog(base)} 模型=${model.value} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
+        `任务=#${generationId} 开始生成: 端点=${sanitizeUrlForLog(base)} 模型=${selectedModel.model.id} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
     );
     if (useChat) {
       await generateViaChat(
@@ -1269,7 +1513,8 @@ async function generate() {
           generationId,
           abortController.signal,
           generatedResultIds,
-          generationPrompt
+          generationPrompt,
+          selectedModel.model.id
       );
     } else {
       await generateViaImages(
@@ -1279,7 +1524,8 @@ async function generate() {
           generationId,
           abortController.signal,
           generatedResultIds,
-          generationPrompt
+          generationPrompt,
+          selectedModel.model.id
       );
     }
     throwIfGenerationAborted(abortController.signal);
@@ -1393,13 +1639,14 @@ async function generateViaImages(
     generationId: number,
     signal: AbortSignal,
     generatedResultIds: Set<string>,
-    generationPrompt: string
+    generationPrompt: string,
+    modelName: string
 ) {
   throwIfGenerationAborted(signal);
   let resp: Response;
   if (refImages.value.length > 0) {
     const form = new FormData();
-    form.append("model", model.value);
+    form.append("model", modelName);
     form.append("prompt", generationPrompt);
     form.append("n", String(count.value));
     if (size.value !== "auto") form.append("size", size.value);
@@ -1420,7 +1667,7 @@ async function generateViaImages(
           method: "POST",
           headers: {...headers, "Content-Type": "application/json"},
           body: JSON.stringify({
-            model: model.value,
+            model: modelName,
             prompt: generationPrompt,
             n: count.value,
             ...(size.value !== "auto" ? {size: size.value} : {}),
@@ -1458,7 +1705,8 @@ async function generateViaChat(
     generationId: number,
     signal: AbortSignal,
     generatedResultIds: Set<string>,
-    generationPrompt: string
+    generationPrompt: string,
+    modelName: string
 ) {
   const content: any[] = [{type: "text", text: generationPrompt}];
   for (const img of refImages.value) {
@@ -1477,7 +1725,7 @@ async function generateViaChat(
         method: "POST",
         headers: {...headers, "Content-Type": "application/json"},
         body: JSON.stringify({
-          model: model.value,
+          model: modelName,
           messages: [{role: "user", content}],
         }),
       },
@@ -1653,16 +1901,24 @@ async function requestTextCompletion(
 
 async function sendChatMessage() {
   if (chatLoading.value || !chatDraft.value.trim()) return;
+  const selectedModel = resolveModelSelection(chatModelSelection.value);
+  if (!selectedModel || selectedModel.model.isImage) {
+    chatError.value = "请先选择一个文字模型";
+    return;
+  }
   const taskId = ++generationSequence;
   await chatSession.send({
+    modelLabel: resolvedModelLabel(selectedModel),
     request: ({messages, signal}) => requestTextCompletion(
         messages.map((message) => ({role: message.role, content: message.content})),
         signal,
-        taskId
+        taskId,
+        selectedModel.model.id,
+        new OpenAIConnection(selectedModel.provider.endpoint, selectedModel.provider.apiKey)
     ),
     onStart: (messageCount) => log(
         "INFO",
-        `任务=#${taskId} 开始文字聊天: 模型=${textModel.value} 消息数=${messageCount}`
+        `任务=#${taskId} 开始文字聊天: 模型=${selectedModel.model.id} 消息数=${messageCount}`
     ),
     onSuccess: () => log("INFO", `任务=#${taskId} 文字聊天完成`),
     onStop: () => log("INFO", `任务=#${taskId} 文字聊天已停止`),
@@ -1670,7 +1926,61 @@ async function sendChatMessage() {
       chatError.value = errorMessage(chatRequestError);
       log("ERROR", `任务=#${taskId} 文字聊天失败: ${formatErrorDetails(chatRequestError)}`);
     },
+    onFirstExchange: (conversationId, messages) => {
+      void generateConversationTitle(conversationId, messages, selectedModel);
+    },
   });
+}
+
+async function generateConversationTitle(
+    conversationId: string,
+    messages: Array<{role: "user" | "assistant"; content: string}>,
+    currentModel: ResolvedModel
+) {
+  if (titleModelSelection.value === "none") {
+    chatSession.markTitleHandled(conversationId);
+    return;
+  }
+  const titleModel = titleModelSelection.value === "current"
+      ? currentModel
+      : resolveModelSelection(titleModelSelection.value);
+  if (!titleModel || titleModel.model.isImage) {
+    chatSession.markTitleHandled(conversationId);
+    return;
+  }
+  const controller = new AbortController();
+  titleGenerationControllers.set(conversationId, controller);
+  const taskId = ++generationSequence;
+  const transcript = messages
+      .slice(0, 2)
+      .map((message) => `${message.role === "user" ? "用户" : "助手"}: ${message.content}`)
+      .join("\n\n");
+  try {
+    const title = await requestTextCompletion(
+        [
+          {
+            role: "system",
+            content: "根据第一轮对话生成一个简短中文标题。只返回标题，不要引号、标点说明或其他内容，最多 20 个汉字。",
+          },
+          {role: "user", content: transcript},
+        ],
+        controller.signal,
+        taskId,
+        titleModel.model.id,
+        new OpenAIConnection(titleModel.provider.endpoint, titleModel.provider.apiKey)
+    );
+    chatSession.setGeneratedTitle(
+        conversationId,
+        title.replace(/^[\s"'“”]+|[\s"'“”]+$/g, "").split("\n", 1)[0].slice(0, 40)
+    );
+    log("INFO", `任务=#${taskId} 对话标题生成完成: 模型=${titleModel.model.id}`);
+  } catch (titleError: unknown) {
+    if (!controller.signal.aborted) {
+      log("ERROR", `任务=#${taskId} 对话标题生成失败: ${formatErrorDetails(titleError)}`);
+    }
+  } finally {
+    titleGenerationControllers.delete(conversationId);
+  }
 }
 
 function stopChat() {
@@ -1679,6 +1989,47 @@ function stopChat() {
 
 function clearChat() {
   chatSession.clear();
+}
+
+function createChatConversation() {
+  if (!chatLoading.value) chatSession.createConversation();
+}
+
+function selectChatConversation(id: string) {
+  chatSession.selectConversation(id);
+}
+
+function renameChatConversation(id: string, title: string) {
+  chatSession.renameConversation(id, title);
+}
+
+function deleteChatConversation(id: string) {
+  titleGenerationControllers.get(id)?.abort();
+  titleGenerationControllers.delete(id);
+  chatSession.deleteConversation(id);
+}
+
+async function copyChatMessage(messageId: string, content: string) {
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(content);
+    copied = true;
+  } catch {
+    try {
+      copied = copyTextFallback(content);
+    } catch {
+    }
+  }
+  if (!copied) {
+    chatError.value = "复制消息失败，请检查系统剪贴板权限";
+    return;
+  }
+  chatCopiedMessageId.value = messageId;
+  if (chatCopyNoticeTimer !== null) window.clearTimeout(chatCopyNoticeTimer);
+  chatCopyNoticeTimer = window.setTimeout(() => {
+    chatCopiedMessageId.value = "";
+    chatCopyNoticeTimer = null;
+  }, 1600);
 }
 
 const appBusy = computed(() => loading.value || chatLoading.value || canvasBusyCount.value > 0);
@@ -1704,37 +2055,35 @@ function addCanvasImageNode() {
 }
 
 function canvasNodeDefaults(type: "text" | "image") {
-  const profile = connectionProfiles.value.find((item) => item.id === activeConnectionId.value)
-      ?? connectionProfiles.value[0];
-  const preferredModel = type === "text" ? textModel.value : model.value;
+  const preferredSelection = type === "text" ? chatModelSelection.value : imageModelSelection.value;
+  const resolved = resolveModelSelection(preferredSelection)
+      ?? resolveModelSelection(firstModelSelection(type === "image"));
   return {
-    connectionId: profile?.id ?? "",
-    model: profile?.models.includes(preferredModel) ? preferredModel : profile?.models[0] ?? preferredModel,
+    connectionId: resolved?.provider.id ?? "",
+    model: resolved?.model.id ?? "",
   };
 }
 
-function canvasConnectionModels(connectionId: string): string[] {
-  return connectionProfiles.value.find((profile) => profile.id === connectionId)?.models ?? [];
+function canvasNodeModelSelection(nodeData: CanvasNodeData): string {
+  return modelSelectionKey(nodeData.connectionId, nodeData.model);
 }
 
-function updateCanvasNodeConnection(nodeId: string, connectionId: string) {
-  const profile = connectionProfiles.value.find((item) => item.id === connectionId);
-  if (!profile) return;
-  const node = canvasGraph.findNode(nodeId);
-  const nextModel = node && profile.models.includes(node.data.model)
-      ? node.data.model
-      : profile.models[0] ?? "";
-  updateCanvasNodeData(nodeId, {connectionId, model: nextModel, error: ""});
-}
-
-function onCanvasNodeConnectionChange(nodeId: string, event: Event) {
-  updateCanvasNodeConnection(nodeId, (event.target as HTMLSelectElement).value);
+function onCanvasNodeModelChange(nodeId: string, event: Event) {
+  const resolved = resolveModelSelection((event.target as HTMLSelectElement).value);
+  if (!resolved) return;
+  updateCanvasNodeData(nodeId, {
+    connectionId: resolved.provider.id,
+    model: resolved.model.id,
+    error: "",
+  });
 }
 
 function connectionForCanvasNode(node: CanvasNode): OpenAIConnection {
   const profile = connectionProfiles.value.find((item) => item.id === node.data.connectionId);
   if (!profile) throw new Error("节点选择的 API 连接不存在，请重新选择");
-  if (!node.data.model.trim()) throw new Error("请为节点选择模型");
+  if (!profile.models.some((item) => item.id === node.data.model)) {
+    throw new Error("节点选择的模型不存在，请重新选择");
+  }
   return new OpenAIConnection(profile.endpoint, profile.apiKey);
 }
 
@@ -2009,23 +2358,28 @@ const viewModel = reactive({
   endpoint,
   apiKey,
   connectionProfiles,
-  activeConnectionId,
-  connectionMenuOpen,
+  selectedProviderId,
+  selectedProvider,
   connectionModalOpen,
   connectionDraftId,
+  connectionDraftName,
   connectionDraftEndpoint,
   connectionDraftApiKey,
-  connectionDraftModels,
-  connectionDraftModelInput,
   connectionDraftError,
-  model,
-  modelOptions,
-  modelMenuOpen,
-  modelShowAll,
-  filteredModelOptions,
-  canAddModelOption,
-  textModel,
-  textModelOptions,
+  modelModalOpen,
+  modelDraftProviderId,
+  modelDraftOriginalId,
+  modelDraftId,
+  modelDraftDisplayName,
+  modelDraftDescription,
+  modelDraftIsImage,
+  modelDraftContextLength,
+  modelDraftError,
+  imageModelSelection,
+  chatModelSelection,
+  titleModelSelection,
+  imageModelGroups,
+  textModelGroups,
   apiMode,
   retryEnabled,
   retryStatusCodes,
@@ -2057,28 +2411,31 @@ const viewModel = reactive({
   resultContextMenu,
   enlargedResult,
   chatMessages,
+  chatConversations,
+  activeChatConversationId,
+  activeChatConversation,
   chatDraft,
   chatLoading,
   chatStopping,
   chatError,
+  chatCopiedMessageId,
   canvasNodes,
   canvasEdges,
   DEFAULT_MODEL_OPTIONS,
   DEFAULT_RETRY_STATUS_CODE_OPTIONS,
   setAppMode,
   maskApiKey,
-  connectionOptionNumber,
-  selectConnection,
+  modelSelectionKey,
+  modelDisplayName,
+  selectProvider,
   openConnectionModal,
   closeConnectionModal,
   saveConnectionDraft,
   removeConnection,
-  addConnectionDraftModel,
-  removeConnectionDraftModel,
-  selectModelOption,
-  addModelOption,
-  removeModelOption,
-  addTextModelOption,
+  openModelModal,
+  closeModelModal,
+  saveModelDraft,
+  removeProviderModel,
   toggleRetryStatusCode,
   addRetryStatusCode,
   removeRetryStatusCodeOption,
@@ -2105,6 +2462,11 @@ const viewModel = reactive({
   sendChatMessage,
   stopChat,
   clearChat,
+  createChatConversation,
+  selectChatConversation,
+  renameChatConversation,
+  deleteChatConversation,
+  copyChatMessage,
   addCanvasTextNode,
   addCanvasImageNode,
   updateCanvasNodeData,
@@ -2112,8 +2474,8 @@ const viewModel = reactive({
   onCanvasNodesUpdate,
   onCanvasEdgesUpdate,
   deleteCanvasNode,
-  onCanvasNodeConnectionChange,
-  canvasConnectionModels,
+  canvasNodeModelSelection,
+  onCanvasNodeModelChange,
   onCanvasImageFiles,
   openCanvasImagePicker,
   removeCanvasReference,
@@ -2181,7 +2543,8 @@ const viewModel = reactive({
       </RouterView>
     </section>
 
-    <ConnectionModal :app="viewModel"/>
+    <ProviderModal :app="viewModel"/>
+    <ModelModal :app="viewModel"/>
     <ResultOverlays :app="viewModel"/>
   </main>
 </template>
@@ -2664,6 +3027,10 @@ textarea:focus {
   z-index: 110;
 }
 
+.model-backdrop {
+  z-index: 115;
+}
+
 .settings-page {
   display: flex;
   flex: 1;
@@ -2783,19 +3150,228 @@ textarea:focus {
 
 .settings-log-section {
   display: flex;
+  width: 100%;
   height: 100%;
   min-height: 0;
   flex-direction: column;
 }
 
-.settings-log-panel {
+.log-panel.settings-log-panel {
   flex: 1;
   min-height: 240px;
   max-height: none;
 }
 
-.settings-log-path {
+.log-panel.settings-log-panel .log-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.log-path.settings-log-path {
   padding: 0 0 8px;
+}
+
+.provider-settings-section {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.provider-settings-layout {
+  display: grid;
+  height: calc(100% - 34px);
+  min-height: 0;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.provider-sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 12px;
+  border-right: 1px solid #2e2e33;
+}
+
+.provider-list {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+}
+
+.provider-list-item {
+  display: flex;
+  min-width: 0;
+  min-height: 46px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #d4d4d8;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.provider-list-item span,
+.provider-list-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-list-item small {
+  color: #71717a;
+  font-size: 11px;
+}
+
+.provider-list-item:hover {
+  background: #323237;
+}
+
+.provider-list-item.active {
+  background: #3730a355;
+  color: #c7d2fe;
+}
+
+.provider-add-button {
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #27272a;
+  color: #c7d2fe;
+  font: inherit;
+  cursor: pointer;
+}
+
+.provider-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.provider-detail-header,
+.provider-model-toolbar,
+.provider-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-detail-header h3 {
+  margin: 0;
+  color: #f4f4f5;
+  font-size: 14px;
+}
+
+.provider-detail-header > div:first-child {
+  min-width: 0;
+}
+
+.provider-detail-header > div:first-child > span {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #71717a;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-detail-actions,
+.provider-model-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.danger-action {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid #7f1d1d;
+  border-radius: 6px;
+  background: #7f1d1d55;
+  color: #fca5a5;
+  font: inherit;
+  cursor: pointer;
+}
+
+.danger-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.provider-key-summary {
+  margin-top: 10px;
+  color: #71717a;
+  font-size: 12px;
+}
+
+.provider-model-toolbar {
+  margin-top: 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #2e2e33;
+}
+
+.provider-model-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.provider-model-row {
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid #2e2e33;
+}
+
+.provider-model-main {
+  min-width: 0;
+}
+
+.provider-model-main > strong,
+.provider-model-main > code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-model-main > code {
+  margin-top: 3px;
+  color: #a1a1aa;
+  font-size: 11px;
+}
+
+.provider-model-main > p {
+  margin: 7px 0 0;
+  color: #a1a1aa;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.provider-model-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 7px;
+  color: #71717a;
+  font-size: 11px;
+}
+
+.provider-model-empty {
+  padding: 28px 0;
+  color: #71717a;
+  text-align: center;
 }
 
 .connection-modal {
@@ -2846,6 +3422,10 @@ textarea:focus {
 }
 
 .connection-modal input {
+  width: 100%;
+}
+
+.connection-modal textarea {
   width: 100%;
 }
 
@@ -3066,9 +3646,23 @@ textarea {
   border-bottom: 1px solid #2e2e33;
 }
 
-.image-generation-config > strong {
+.advanced-config-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
   color: #d4d4d8;
+  font: inherit;
   font-size: 12px;
+  cursor: pointer;
+}
+
+.advanced-config-toggle .chevron.open {
+  transform: translateY(2px) rotate(225deg);
 }
 
 .image-generation-config-grid {
@@ -3091,6 +3685,25 @@ textarea {
   gap: 8px;
   max-width: 100%;
   margin-left: auto;
+}
+
+.action-model-picker {
+  display: flex;
+  min-width: min(260px, 100%);
+  flex: 1 1 260px;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}
+
+.action-model-picker > span {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.action-model-picker select {
+  min-width: 0;
+  flex: 1;
 }
 
 .generate {
@@ -3382,6 +3995,149 @@ textarea {
   gap: 12px;
 }
 
+.chat-layout {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.chat-conversation-sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 12px;
+  border-right: 1px solid #2e2e33;
+}
+
+.new-conversation-button {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #4f46e5;
+  border-radius: 6px;
+  background: #312e8155;
+  color: #c7d2fe;
+  font: inherit;
+  cursor: pointer;
+}
+
+.conversation-list {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+}
+
+.conversation-list-item {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 52px;
+  align-items: center;
+  border-radius: 6px;
+}
+
+.conversation-list-item:hover,
+.conversation-list-item.active {
+  background: #323237;
+}
+
+.conversation-list-item.active {
+  box-shadow: inset 2px 0 #6366f1;
+}
+
+.conversation-select {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 7px 52px 7px 9px;
+  border: 0;
+  background: transparent;
+  color: #d4d4d8;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-select span,
+.conversation-select small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-select small {
+  color: #71717a;
+  font-size: 10px;
+}
+
+.conversation-item-actions {
+  position: absolute;
+  right: 5px;
+  display: none;
+  gap: 2px;
+}
+
+.conversation-list-item:hover .conversation-item-actions,
+.conversation-list-item.active .conversation-item-actions {
+  display: flex;
+}
+
+.conversation-item-actions button,
+.conversation-rename button {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #a1a1aa;
+  cursor: pointer;
+}
+
+.conversation-item-actions button:hover,
+.conversation-rename button:hover {
+  background: #52525b;
+  color: #fff;
+}
+
+.conversation-rename {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+}
+
+.conversation-rename input {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+}
+
+.chat-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .chat-messages {
   display: flex;
   flex: 1;
@@ -3413,9 +4169,36 @@ textarea {
 }
 
 .chat-role {
-  margin-bottom: 5px;
   color: #71717a;
   font-size: 12px;
+}
+
+.chat-message-header {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.chat-copy-button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+}
+
+.chat-copy-button:hover {
+  background: #323237;
+  color: #e4e4e7;
 }
 
 .chat-message p,
@@ -3434,6 +4217,12 @@ textarea {
 .chat-message.user p {
   border-color: #4f46e5;
   background: #312e8155;
+}
+
+.chat-message-model {
+  margin-top: 5px;
+  color: #71717a;
+  font-size: 11px;
 }
 
 .chat-thinking {
@@ -3455,6 +4244,8 @@ textarea {
 
 .chat-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
@@ -3896,6 +4687,16 @@ textarea {
     gap: 12px;
   }
 
+  .provider-settings-layout {
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .chat-layout {
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 10px;
+  }
+
   .settings-form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3921,6 +4722,16 @@ textarea {
 @media (max-width: 560px) {
   .image-generation-config-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provider-settings-layout,
+  .chat-layout {
+    grid-template-columns: 124px minmax(0, 1fr);
+  }
+
+  .provider-sidebar,
+  .chat-conversation-sidebar {
+    padding-right: 8px;
   }
 }
 </style>

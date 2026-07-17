@@ -6,6 +6,22 @@ defineProps<{app: any}>();
   <div class="settings-section">
     <h2>通用设置</h2>
     <div class="settings-form-grid">
+      <h3>生成设置</h3>
+      <label class="settings-form-wide">
+        对话标题
+        <select v-model="app.titleModelSelection">
+          <option value="current">使用当前聊天模型</option>
+          <option value="none">不生成标题</option>
+          <optgroup v-for="group in app.textModelGroups" :key="group.provider.id" :label="group.provider.name">
+            <option
+                v-for="providerModel in group.models"
+                :key="providerModel.id"
+                :value="app.modelSelectionKey(group.provider.id, providerModel.id)"
+            >{{ app.modelDisplayName(providerModel) }}</option>
+          </optgroup>
+        </select>
+      </label>
+
       <h3>应用更新</h3>
       <label class="checkbox-row settings-form-wide">
         <input v-model="app.autoCheckUpdate" type="checkbox"/>
