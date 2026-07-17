@@ -10,17 +10,17 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 - **Providers and models**: add, name, and edit providers directly in the Model Settings detail pane, each with its own API endpoint, key, and model list; navigating with unsaved changes prompts you to save, discard, or keep editing; models support an ID, optional display name and description, image-model flag, and context length through a dedicated modal
 - **Organized settings**: the Settings page has nested routes for Model Settings, General Settings, and full-size Logs; entering Settings from the main navigation always opens Model Settings, which adds a secondary provider sidebar
 - **Text chat**: use `/chat/completions` across persistent multiple conversations with create, rename, delete, and per-message copy actions; assistant messages show the actual model, while first exchanges can generate titles asynchronously with a chosen model or title generation can be disabled
-- **Grouped model selection**: Image Generation, Chat, and Infinite Canvas nodes select models grouped by provider, and each request automatically uses that model's provider endpoint and key
+- **Grouped model selection**: Image Generation, Chat, conversation titles, and Infinite Canvas nodes select models grouped by provider, show the selected provider in a tag, and automatically use that provider's endpoint and key
 - **Infinite canvas**: pan and zoom freely; text generation creates a connected text child, while uploaded or generated image nodes are reference-only inputs that can feed a new empty image node and produce multiple image children
 - **Paste-to-configure**: press Ctrl+V to add and switch to an imported connection, supporting newapi channel JSON (`{"_type":"newapi_channel_conn",...}`) and Codex CLI `config.toml` (extracts `base_url`)
 - **Text to image**: generate images from a prompt via `/images/generations`
 - **Reference images**: attach any number of reference images via file picker, drag & drop, or clipboard paste
 - **API mode**: Auto / Images API / Chat API; in Auto mode, multiple reference images are routed through `/chat/completions`, working around relays whose edits endpoint only accepts a single image
-- **Advanced image settings**: API mode, dimensions, output count, and retries live in an Advanced section that is collapsed by default and must be opened manually; retry status codes support persistent custom options and multi-selection
+- **Advanced image settings**: API mode and retries live in an Advanced section that is collapsed by default and must be opened manually; retry status codes support persistent custom options and multi-selection
 - **Generation control**: stop the current task while generating, cancelling the API request, retry delay and result downloads
 - **Diagnostic logs**: record generation task IDs, request stages, durations, body sizes, proxy state and redacted error details to help diagnose timeouts and transport failures
-- **Generation options**: image size (1024×1024 / landscape / portrait / auto) and count
-- **Preview history**: generated images and prompts are appended to the preview area and restored after restart; double-click an image to enlarge it, or right-click to copy the image or its prompt, use it as a reference, save it, or delete it, or clear the entire preview
+- **Generation options**: model, image size, output count, and the generate action share one bottom parameter row that stays pinned when space allows; choose auto, a preset, or enter a custom width and height
+- **Preview history**: a dedicated scrolling area at the top fills the remaining space while keeping at least one compact thumbnail row visible; short windows release the bottom row and scroll the whole page. Generated images and prompts are restored after restart, with double-click zoom and right-click actions to copy, reuse, save, delete, or clear results
 - **Save results**: handles `b64_json`, image URLs (including relative paths) and base64 embedded in chat responses; one-click save to disk
 
 ## Download

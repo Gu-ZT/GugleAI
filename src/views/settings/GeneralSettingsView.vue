@@ -9,17 +9,12 @@ defineProps<{app: any}>();
       <h3>生成设置</h3>
       <label class="settings-form-wide">
         对话标题
-        <select v-model="app.titleModelSelection">
-          <option value="current">使用当前聊天模型</option>
-          <option value="none">不生成标题</option>
-          <optgroup v-for="group in app.textModelGroups" :key="group.provider.id" :label="group.provider.name">
-            <option
-                v-for="providerModel in group.models"
-                :key="providerModel.id"
-                :value="app.modelSelectionKey(group.provider.id, providerModel.id)"
-            >{{ app.modelDisplayName(providerModel) }}</option>
-          </optgroup>
-        </select>
+        <a-select v-model="app.titleModelSelection" :options="app.titleModelSelectOptions" class="model-provider-select">
+          <template #label="{data}">
+            <span class="selected-model-label">{{ data.label }}</span>
+            <a-tag v-if="data.providerName" size="small" class="model-provider-tag">{{ data.providerName }}</a-tag>
+          </template>
+        </a-select>
       </label>
 
       <h3>应用更新</h3>

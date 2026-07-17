@@ -87,15 +87,17 @@ function saveRename() {
           <div class="chat-actions">
             <label class="action-model-picker">
               <span>模型</span>
-              <select v-model="app.chatModelSelection" :disabled="app.textModelGroups.length === 0">
-                <optgroup v-for="group in app.textModelGroups" :key="group.provider.id" :label="group.provider.name">
-                  <option
-                      v-for="providerModel in group.models"
-                      :key="providerModel.id"
-                      :value="app.modelSelectionKey(group.provider.id, providerModel.id)"
-                  >{{ app.modelDisplayName(providerModel) }}</option>
-                </optgroup>
-              </select>
+              <a-select
+                  v-model="app.chatModelSelection"
+                  :options="app.textModelSelectOptions"
+                  :disabled="app.textModelGroups.length === 0"
+                  class="model-provider-select"
+              >
+                <template #label="{data}">
+                  <span class="selected-model-label">{{ data.label }}</span>
+                  <a-tag v-if="data.providerName" size="small" class="model-provider-tag">{{ data.providerName }}</a-tag>
+                </template>
+              </a-select>
             </label>
             <button v-if="app.chatLoading" type="button" class="stop-generation" :disabled="app.chatStopping" @click="app.stopChat">
               <span class="stop-icon" aria-hidden="true"></span>

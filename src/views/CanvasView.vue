@@ -43,15 +43,17 @@ defineProps<{app: any}>();
             <div class="canvas-node-config nodrag">
               <label>
                 模型
-                <select :value="app.canvasNodeModelSelection(data)" @change="app.onCanvasNodeModelChange(id, $event)">
-                  <optgroup v-for="group in app.textModelGroups" :key="group.provider.id" :label="group.provider.name">
-                    <option
-                        v-for="providerModel in group.models"
-                        :key="providerModel.id"
-                        :value="app.modelSelectionKey(group.provider.id, providerModel.id)"
-                    >{{ app.modelDisplayName(providerModel) }}</option>
-                  </optgroup>
-                </select>
+                <a-select
+                    :model-value="app.canvasNodeModelSelection(data)"
+                    :options="app.textModelSelectOptions"
+                    class="model-provider-select"
+                    @change="app.onCanvasNodeModelChange(id, $event)"
+                >
+                  <template #label="{data: selectedOption}">
+                    <span class="selected-model-label">{{ selectedOption.label }}</span>
+                    <a-tag v-if="selectedOption.providerName" size="small" class="model-provider-tag">{{ selectedOption.providerName }}</a-tag>
+                  </template>
+                </a-select>
               </label>
             </div>
             <textarea v-model="data.text" class="nodrag" rows="5" placeholder="输入文字内容"></textarea>
@@ -76,15 +78,17 @@ defineProps<{app: any}>();
             <div class="canvas-node-config nodrag">
               <label>
                 模型
-                <select :value="app.canvasNodeModelSelection(data)" @change="app.onCanvasNodeModelChange(id, $event)">
-                  <optgroup v-for="group in app.imageModelGroups" :key="group.provider.id" :label="group.provider.name">
-                    <option
-                        v-for="providerModel in group.models"
-                        :key="providerModel.id"
-                        :value="app.modelSelectionKey(group.provider.id, providerModel.id)"
-                    >{{ app.modelDisplayName(providerModel) }}</option>
-                  </optgroup>
-                </select>
+                <a-select
+                    :model-value="app.canvasNodeModelSelection(data)"
+                    :options="app.imageModelSelectOptions"
+                    class="model-provider-select"
+                    @change="app.onCanvasNodeModelChange(id, $event)"
+                >
+                  <template #label="{data: selectedOption}">
+                    <span class="selected-model-label">{{ selectedOption.label }}</span>
+                    <a-tag v-if="selectedOption.providerName" size="small" class="model-provider-tag">{{ selectedOption.providerName }}</a-tag>
+                  </template>
+                </a-select>
               </label>
             </div>
             <div v-if="data.references.length" class="canvas-node-images nodrag">

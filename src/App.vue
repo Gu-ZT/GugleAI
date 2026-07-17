@@ -172,6 +172,8 @@ const retryStatusCodeMenuOpen = ref(false);
 const retryCount = ref(5);
 const autoCheckUpdate = ref(true);
 const size = ref("auto");
+const customWidth = ref(1024);
+const customHeight = ref(1024);
 const count = ref(1);
 
 const prompt = ref("");
@@ -900,6 +902,26 @@ const textModelGroups = computed(() => connectionProfiles.value
     }))
     .filter((group) => group.models.length > 0));
 
+function modelSelectOptions(groups: typeof imageModelGroups.value) {
+  return groups.map((group) => ({
+    isGroup: true as const,
+    label: group.provider.name,
+    options: group.models.map((providerModel) => ({
+      value: modelSelectionKey(group.provider.id, providerModel.id),
+      label: modelDisplayName(providerModel),
+      providerName: group.provider.name,
+    })),
+  }));
+}
+
+const imageModelSelectOptions = computed(() => modelSelectOptions(imageModelGroups.value));
+const textModelSelectOptions = computed(() => modelSelectOptions(textModelGroups.value));
+const titleModelSelectOptions = computed(() => [
+  {value: "current", label: "使用当前聊天模型", providerName: ""},
+  {value: "none", label: "不生成标题", providerName: ""},
+  ...textModelSelectOptions.value,
+]);
+
 const providerList = computed<ConnectionProfile[]>(() => {
   if (!connectionDraftId.value) return connectionProfiles.value;
   if (providerDraftIsNew.value) {
@@ -1380,6 +1402,16 @@ onMounted(async () => {
       ].sort((a, b) => a - b);
       retryCount.value = s.retryCount ?? 5;
       autoCheckUpdate.value = s.autoCheckUpdate ?? true;
+      size.value = typeof s.size === "string" && [
+        "auto",
+        "1024x1024",
+        "1536x1024",
+        "1024x1536",
+        "custom",
+      ].includes(s.size) ? s.size : "auto";
+      customWidth.value = Number.isInteger(s.customWidth) && s.customWidth > 0 ? s.customWidth : 1024;
+      customHeight.value = Number.isInteger(s.customHeight) && s.customHeight > 0 ? s.customHeight : 1024;
+      count.value = Number.isInteger(s.count) && s.count >= 1 && s.count <= 10 ? s.count : 1;
       textModel.value = typeof s.textModel === "string" && s.textModel.trim() ? s.textModel.trim() : textModel.value;
       textModelOptions.value = normalizeTextModelOptions(s.textModelOptions);
       if (textModel.value && !textModelOptions.value.includes(textModel.value)) {
@@ -1450,6 +1482,10 @@ watch(
       retryStatusCodeOptions,
       retryCount,
       autoCheckUpdate,
+      size,
+      customWidth,
+      customHeight,
+      count,
       textModel,
       textModelOptions,
       imageModelSelection,
@@ -1475,6 +1511,10 @@ watch(
             retryStatusCodeOptions: retryStatusCodeOptions.value,
             retryCount: retryCount.value,
             autoCheckUpdate: autoCheckUpdate.value,
+            size: size.value,
+            customWidth: customWidth.value,
+            customHeight: customHeight.value,
+            count: count.value,
             textModel: textModel.value,
             textModelOptions: textModelOptions.value,
             imageModelSelection: imageModelSelection.value,
@@ -1587,6 +1627,17 @@ function stopGeneration() {
   generationAbortController.abort();
 }
 
+function resolvedGenerationSize(): string | null {
+  if (size.value === "auto") return null;
+  if (size.value !== "custom") return size.value;
+  const width = Number(customWidth.value);
+  const height = Number(customHeight.value);
+  if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 1) {
+    throw new Error("自定义尺寸的宽度和高度必须是大于 0 的整数");
+  }
+  return `${width}x${height}`;
+}
+
 async function generate() {
   if (loading.value) return;
   const selectedModel = resolveModelSelection(imageModelSelection.value);
@@ -1599,6 +1650,14 @@ async function generate() {
     error.value = "请输入提示词";
     return;
   }
+  let requestSize: string | null;
+  try {
+    requestSize = resolvedGenerationSize();
+  } catch (sizeError: unknown) {
+    error.value = errorMessage(sizeError);
+    return;
+  }
+  const requestCount = Math.max(1, Math.min(10, Math.trunc(Number(count.value) || 1)));
   const generationId = ++generationSequence;
   const abortController = new AbortController();
   const generatedResultIds = new Set<string>();
@@ -1622,7 +1681,7 @@ async function generate() {
         apiMode.value === "chat" || (apiMode.value === "auto" && refImages.value.length > 1);
     log(
         "INFO",
-        `任务=#${generationId} 开始生成: 端点=${sanitizeUrlForLog(base)} 模型=${selectedModel.model.id} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${count.value} 尺寸=${size.value} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
+        `任务=#${generationId} 开始生成: 端点=${sanitizeUrlForLog(base)} 模型=${selectedModel.model.id} 模式=${useChat ? "chat" : "images"} 参考图=${refImages.value.length} 数量=${requestCount} 尺寸=${requestSize ?? "auto"} 重试=${retryConfig ? `[${[...retryConfig.statusCodes].join(",")}],最多${retryConfig.maxRetries}次` : "关闭"}`
     );
     if (useChat) {
       await generateViaChat(
@@ -1633,7 +1692,9 @@ async function generate() {
           abortController.signal,
           generatedResultIds,
           generationPrompt,
-          selectedModel.model.id
+          selectedModel.model.id,
+          requestSize,
+          requestCount
       );
     } else {
       await generateViaImages(
@@ -1644,7 +1705,9 @@ async function generate() {
           abortController.signal,
           generatedResultIds,
           generationPrompt,
-          selectedModel.model.id
+          selectedModel.model.id,
+          requestSize,
+          requestCount
       );
     }
     throwIfGenerationAborted(abortController.signal);
@@ -1759,7 +1822,9 @@ async function generateViaImages(
     signal: AbortSignal,
     generatedResultIds: Set<string>,
     generationPrompt: string,
-    modelName: string
+    modelName: string,
+    requestSize: string | null,
+    requestCount: number
 ) {
   throwIfGenerationAborted(signal);
   let resp: Response;
@@ -1767,8 +1832,8 @@ async function generateViaImages(
     const form = new FormData();
     form.append("model", modelName);
     form.append("prompt", generationPrompt);
-    form.append("n", String(count.value));
-    if (size.value !== "auto") form.append("size", size.value);
+    form.append("n", String(requestCount));
+    if (requestSize) form.append("size", requestSize);
     for (const img of refImages.value) {
       form.append("image[]", img.file, img.file.name);
     }
@@ -1788,8 +1853,8 @@ async function generateViaImages(
           body: JSON.stringify({
             model: modelName,
             prompt: generationPrompt,
-            n: count.value,
-            ...(size.value !== "auto" ? {size: size.value} : {}),
+            n: requestCount,
+            ...(requestSize ? {size: requestSize} : {}),
           }),
         },
         retryConfig,
@@ -1825,7 +1890,9 @@ async function generateViaChat(
     signal: AbortSignal,
     generatedResultIds: Set<string>,
     generationPrompt: string,
-    modelName: string
+    modelName: string,
+    requestSize: string | null,
+    requestCount: number
 ) {
   const content: any[] = [{type: "text", text: generationPrompt}];
   for (const img of refImages.value) {
@@ -1846,6 +1913,8 @@ async function generateViaChat(
         body: JSON.stringify({
           model: modelName,
           messages: [{role: "user", content}],
+          n: requestCount,
+          ...(requestSize ? {size: requestSize} : {}),
         }),
       },
       retryConfig,
@@ -2187,8 +2256,11 @@ function canvasNodeModelSelection(nodeData: CanvasNodeData): string {
   return modelSelectionKey(nodeData.connectionId, nodeData.model);
 }
 
-function onCanvasNodeModelChange(nodeId: string, event: Event) {
-  const resolved = resolveModelSelection((event.target as HTMLSelectElement).value);
+function onCanvasNodeModelChange(nodeId: string, valueOrEvent: string | Event) {
+  const selection = typeof valueOrEvent === "string"
+      ? valueOrEvent
+      : (valueOrEvent.target as HTMLSelectElement).value;
+  const resolved = resolveModelSelection(selection);
   if (!resolved) return;
   updateCanvasNodeData(nodeId, {
     connectionId: resolved.provider.id,
@@ -2335,6 +2407,7 @@ async function requestCanvasImages(
   const connection = connectionForCanvasNode(node);
   const base = connection.baseUrl;
   const retryConfig = getRetryConfig();
+  const requestSize = resolvedGenerationSize();
   const useChat = apiMode.value === "chat" || (apiMode.value === "auto" && references.length > 1);
   if (useChat) {
     const content: any[] = [{type: "text", text: promptText}];
@@ -2346,7 +2419,12 @@ async function requestCanvasImages(
         {
           method: "POST",
           headers: connection.jsonHeaders,
-          body: JSON.stringify({model: node.data.model, messages: [{role: "user", content}], n: amount}),
+          body: JSON.stringify({
+            model: node.data.model,
+            messages: [{role: "user", content}],
+            n: amount,
+            ...(requestSize ? {size: requestSize} : {}),
+          }),
         },
         retryConfig,
         taskId,
@@ -2379,7 +2457,7 @@ async function requestCanvasImages(
     form.append("model", node.data.model);
     form.append("prompt", promptText);
     form.append("n", String(amount));
-    if (size.value !== "auto") form.append("size", size.value);
+    if (requestSize) form.append("size", requestSize);
     for (const asset of references) form.append("image[]", assetToFile(asset), asset.name);
     response = await fetchGeneration(
         `${base}/images/edits`,
@@ -2398,7 +2476,7 @@ async function requestCanvasImages(
             model: node.data.model,
             prompt: promptText,
             n: amount,
-            ...(size.value !== "auto" ? {size: size.value} : {}),
+            ...(requestSize ? {size: requestSize} : {}),
           }),
         },
         retryConfig,
@@ -2502,6 +2580,9 @@ const viewModel = reactive({
   titleModelSelection,
   imageModelGroups,
   textModelGroups,
+  imageModelSelectOptions,
+  textModelSelectOptions,
+  titleModelSelectOptions,
   apiMode,
   retryEnabled,
   retryStatusCodes,
@@ -2514,6 +2595,8 @@ const viewModel = reactive({
   showRetryStatusCodeInputAction,
   autoCheckUpdate,
   size,
+  customWidth,
+  customHeight,
   count,
   checkingUpdate,
   updateStatus,
@@ -3698,12 +3781,6 @@ textarea:focus {
   padding: 16px;
 }
 
-.prompt-area {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 textarea {
   resize: vertical;
   min-height: 80px;
@@ -3762,27 +3839,148 @@ textarea {
   color: #6366f1;
 }
 
-.actions {
+.image-workspace {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  min-height: 100%;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.hint {
-  flex: 1 1 140px;
+.image-primary-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 9px 12px;
+}
+
+.image-model-option {
+  min-width: 220px;
+  flex: 1 1 240px;
+}
+
+.image-size-option {
+  width: 156px;
+  flex: 0 0 156px;
+}
+
+.image-count-option {
+  width: 76px;
+  flex: 0 0 76px;
+}
+
+.image-size-option select,
+.image-count-option input,
+.custom-size-inputs input {
+  width: 100%;
   min-width: 0;
-  font-size: 12px;
+}
+
+.custom-size-inputs {
+  display: flex;
+  min-width: min(190px, 100%);
+  flex: 0 0 210px;
+  align-items: end;
+  gap: 8px;
+}
+
+.custom-size-inputs label {
+  min-width: 0;
+  flex: 1;
+}
+
+.custom-size-inputs > span {
+  flex: 0 0 auto;
+  padding-bottom: 9px;
   color: #71717a;
 }
 
-.image-workspace {
+.image-generate-action {
+  min-height: 36px;
+  min-width: 138px;
+  flex: 0 0 auto;
+  padding-right: 16px;
+  padding-left: 16px;
+  white-space: nowrap;
+}
+
+.model-provider-select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #3f3f46;
+  background: #27272a;
+  color: #e4e4e7;
+}
+
+.model-provider-select:hover,
+.model-provider-select.arco-select-view-focus {
+  border-color: #6366f1;
+  background: #27272a;
+}
+
+.model-provider-select .arco-select-view-value,
+.model-provider-select .arco-select-view-suffix {
+  color: #e4e4e7;
+}
+
+.model-provider-select .arco-select-view-value {
   display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  gap: 16px;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.selected-model-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-provider-select .model-provider-tag.arco-tag {
+  max-width: 132px;
+  flex: 0 1 auto;
+  border: 1px solid #4f46e5;
+  background: #3730a355;
+  color: #c7d2fe;
+}
+
+.model-provider-tag .arco-tag-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arco-select-dropdown {
+  border: 1px solid #3f3f46;
+  background: #27272a;
+}
+
+.arco-select-dropdown .arco-select-group-title {
+  color: #71717a;
+}
+
+.arco-select-dropdown .arco-select-option {
+  color: #d4d4d8;
+}
+
+.arco-select-dropdown .arco-select-option:hover,
+.arco-select-dropdown .arco-select-option-active {
+  background: #3f3f46;
+}
+
+.arco-select-dropdown .arco-select-option-selected {
+  background: #3730a355;
+  color: #c7d2fe;
+}
+
+.image-mode-hint {
+  color: #71717a;
+  font-size: 12px;
+}
+
+.image-prompt-input {
+  flex: 0 0 auto;
 }
 
 .image-generation-config {
@@ -4029,10 +4227,10 @@ textarea {
 
 .preview-panel {
   display: flex;
-  flex: 1;
-  min-height: 0;
+  min-height: 224px;
+  flex: 1 1 224px;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .preview-toolbar {
@@ -4076,8 +4274,25 @@ textarea {
 
 .results {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
-  gap: 16px;
+  min-width: 100%;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 160px));
+  gap: 10px;
+  padding: 2px 12px 8px 0;
+}
+
+.preview-scroll {
+  min-height: 186px;
+  flex: 1;
+}
+
+.preview-scroll-container {
+  height: 100%;
+  min-height: 186px;
+  overflow: auto;
+}
+
+.preview-placeholder {
+  min-height: 186px;
 }
 
 .workspace-toolbar .arco-btn-secondary {
@@ -4542,6 +4757,14 @@ textarea {
   text-overflow: ellipsis;
 }
 
+.canvas-node-config .model-provider-select {
+  min-width: 0;
+}
+
+.canvas-node-config .model-provider-tag.arco-tag {
+  max-width: 88px;
+}
+
 .canvas-node-delete {
   width: 26px;
   height: 26px;
@@ -4695,15 +4918,16 @@ textarea {
 
 .result-card {
   display: flex;
+  width: 100%;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .result-card img {
   width: 100%;
-  aspect-ratio: 1;
+  height: 138px;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid #3f3f46;
   background: #111113;
   cursor: zoom-in;
@@ -4717,7 +4941,7 @@ textarea {
 .result-actions button {
   flex: 1;
   font: inherit;
-  padding: 6px;
+  padding: 4px 6px;
   border: 1px solid #3f3f46;
   border-radius: 6px;
   background: #27272a;
@@ -4892,6 +5116,17 @@ textarea {
 }
 
 @media (max-width: 560px) {
+  .image-primary-options {
+    align-items: stretch;
+  }
+
+  .image-size-option,
+  .image-count-option,
+  .custom-size-inputs {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
   .image-generation-config-grid {
     grid-template-columns: minmax(0, 1fr);
   }
