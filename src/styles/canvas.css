@@ -116,6 +116,18 @@
   max-width: 88px;
 }
 
+.canvas-model-popup[trigger-placement="bottom"],
+.canvas-model-popup[trigger-placement="bl"],
+.canvas-model-popup[trigger-placement="br"] {
+  transform-origin: top left;
+}
+
+.canvas-model-popup[trigger-placement="top"],
+.canvas-model-popup[trigger-placement="tl"],
+.canvas-model-popup[trigger-placement="tr"] {
+  transform-origin: bottom left;
+}
+
 .canvas-node-delete {
   width: 26px;
   height: 26px;

@@ -18,7 +18,7 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 - **Themes and UI**: choose Light, Dark, or Follow System under General Settings; controls and colors use Arco Design throughout and update live through its theme tokens
 - **Text chat**: use `/chat/completions` across persistent multiple conversations with create, rename, delete, and per-message copy actions; assistant messages show the actual model, while first exchanges can generate titles asynchronously with a chosen model or title generation can be disabled
 - **Grouped model selection**: Image Generation, Chat, conversation titles, and Infinite Canvas nodes select models grouped by provider, show the selected provider in a tag, and automatically use that provider's endpoint and key
-- **Infinite canvas**: pan and zoom freely; text generation creates a connected text child, while uploaded or generated image nodes are reference-only inputs that can feed a new empty image node and produce multiple image children
+- **Infinite canvas**: pan and zoom freely; text generation creates a connected text child; generation reads only directly connected upstream nodes, adding text nodes to the prompt and image nodes as references; each reference node stores one image and hides irrelevant model settings
 - **Paste-to-configure**: press Ctrl+V to add and switch to an imported connection, supporting newapi channel JSON (`{"_type":"newapi_channel_conn",...}`) and Codex CLI `config.toml` (extracts `base_url`)
 - **Text to image**: generate images from a prompt via `/images/generations`
 - **Reference images**: attach any number of reference images via file picker, drag & drop, or clipboard paste
@@ -66,7 +66,7 @@ pnpm tauri build
 1. In Model Settings, add a provider, edit its name, endpoint, and key directly in the detail pane, save it, then maintain its models through the model modal
 2. Choose models grouped by provider in Image Generation, Chat, and Infinite Canvas; manually expand Advanced settings for image request options
 3. Create and rename persistent conversations in Chat; under General Settings, switch between Light, Dark, and Follow System, then choose a title model, use the active chat model, or disable title generation
-4. In Infinite Canvas, text generation creates a new text child, and image-bearing nodes must be connected as references to a new empty image node before generation
+4. In Infinite Canvas, text generation creates a new text child; each image-bearing node stores one replaceable reference, and multiple reference nodes can feed a new empty image node before generation
 5. Image previews remain available; double-click to enlarge, or right-click to copy the image or prompt, use it as a reference, save it, delete it, or clear the full preview history
 
 ## License

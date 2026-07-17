@@ -92,7 +92,7 @@ export class CanvasGraph {
     )) return;
     this.edges.value = addEdge(
         {id: this.nextId("edge"), ...connection, animated: true},
-        this.edges.value
+        [...this.edges.value]
     ) as Edge[];
   }
 
@@ -138,7 +138,7 @@ export class CanvasGraph {
     );
   }
 
-  parentNodes(nodeId: string): CanvasNode[] {
+  directParentNodes(nodeId: string): CanvasNode[] {
     const parentIds = this.edges.value.filter((edge) => edge.target === nodeId).map((edge) => edge.source);
     return parentIds
         .map((parentId) => this.findNode(parentId))
@@ -147,7 +147,7 @@ export class CanvasGraph {
 
   prompt(node: CanvasNode): string {
     const parts = [node.type === "text" ? node.data.text : node.data.prompt];
-    for (const parent of this.parentNodes(node.id)) {
+    for (const parent of this.directParentNodes(node.id)) {
       if (parent.type !== "text") continue;
       const text = parent.data.outputText.trim() || parent.data.text.trim();
       if (text) parts.push(text);
@@ -157,7 +157,7 @@ export class CanvasGraph {
 
   referenceAssets(node: CanvasNode): CanvasImageAsset[] {
     const assets = [...(node.type === "image" ? node.data.references : [])];
-    for (const parent of this.parentNodes(node.id)) {
+    for (const parent of this.directParentNodes(node.id)) {
       if (parent.type !== "image") continue;
       assets.push(...(parent.data.outputs.length > 0 ? parent.data.outputs : parent.data.references));
     }
@@ -172,16 +172,18 @@ export class CanvasGraph {
   addFiles(nodeId: string, files: File[]): void {
     const node = this.findNode(nodeId);
     if (!node || node.type !== "image") return;
-    const added = files
-        .filter((file) => file.type.startsWith("image/"))
-        .map((file): CanvasImageAsset => ({
-          id: this.nextId("asset"),
-          blob: file,
-          mime: normalizeMime(file.type),
-          url: URL.createObjectURL(file),
-          name: file.name,
-        }));
-    this.updateData(nodeId, {references: [...node.data.references, ...added]});
+    const file = files.find((item) => item.type.startsWith("image/"));
+    if (!file) return;
+    for (const reference of node.data.references) URL.revokeObjectURL(reference.url);
+    this.updateData(nodeId, {
+      references: [{
+        id: this.nextId("asset"),
+        blob: file,
+        mime: normalizeMime(file.type),
+        url: URL.createObjectURL(file),
+        name: file.name,
+      }],
+    });
   }
 
   removeReference(nodeId: string, assetId: string): void {

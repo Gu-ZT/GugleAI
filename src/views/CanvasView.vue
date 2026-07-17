@@ -1,10 +1,27 @@
 <script setup lang="ts">
-import {Handle, Position, VueFlow} from "@vue-flow/core";
-import {IconClose, IconPlus, IconStop} from "@arco-design/web-vue/es/icon";
+import {ref} from "vue";
+import {Handle, Position, VueFlow, type ViewportTransform} from "@vue-flow/core";
+import {IconClose, IconPlus, IconRefresh, IconStop} from "@arco-design/web-vue/es/icon";
 import "@vue-flow/core/dist/style.css";
 import "@vue-flow/core/dist/theme-default.css";
 
 defineProps<{app: any}>();
+
+const canvasSelectTriggerProps = ref(createCanvasSelectTriggerProps(0.9));
+
+function createCanvasSelectTriggerProps(zoom: number) {
+  return {
+    class: "canvas-model-popup",
+    popupOffset: 4 * zoom,
+    popupStyle: {
+      transform: `scale(${zoom})`,
+    },
+  };
+}
+
+function onCanvasViewportChange(viewport: ViewportTransform) {
+  canvasSelectTriggerProps.value = createCanvasSelectTriggerProps(viewport.zoom);
+}
 </script>
 
 <template>
@@ -30,6 +47,7 @@ defineProps<{app: any}>();
           :max-zoom="2.5"
           :default-viewport="{ x: 0, y: 0, zoom: 0.9 }"
           fit-view-on-init
+          @viewport-change="onCanvasViewportChange"
           @connect="app.onCanvasConnect"
           @update:nodes="app.onCanvasNodesUpdate"
           @update:edges="app.onCanvasEdgesUpdate"
@@ -47,6 +65,7 @@ defineProps<{app: any}>();
                 <a-select
                     :model-value="app.canvasNodeModelSelection(data)"
                     :options="app.textModelSelectOptions"
+                    :trigger-props="canvasSelectTriggerProps"
                     class="model-provider-select"
                     @change="app.onCanvasNodeModelChange(id, $event)"
                 >
@@ -76,12 +95,13 @@ defineProps<{app: any}>();
               <strong>{{ data.title }}</strong>
               <a-button type="text" shape="circle" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)"><IconClose/></a-button>
             </div>
-            <div class="canvas-node-config nodrag">
+            <div v-if="data.references.length === 0" class="canvas-node-config nodrag">
               <div class="canvas-node-model-field">
                 <span>模型</span>
                 <a-select
                     :model-value="app.canvasNodeModelSelection(data)"
                     :options="app.imageModelSelectOptions"
+                    :trigger-props="canvasSelectTriggerProps"
                     class="model-provider-select"
                     @change="app.onCanvasNodeModelChange(id, $event)"
                 >
@@ -103,7 +123,7 @@ defineProps<{app: any}>();
               <a-textarea v-model="data.prompt" class="nodrag" :auto-size="{ minRows: 3, maxRows: 8 }" placeholder="描述要生成的图片"/>
               <div class="canvas-image-options nodrag">
                 <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconPlus/></template>添加参考图</a-button>
-                <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="app.onCanvasImageFiles(id, $event)"/>
+                <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="app.onCanvasImageFiles(id, $event)"/>
                 <label>数量 <a-input-number v-model="data.count" :min="1" :max="10" @click.stop/></label>
               </div>
               <div class="canvas-node-actions nodrag">
@@ -115,8 +135,8 @@ defineProps<{app: any}>();
             </template>
             <div v-else-if="!data.readOnly" class="canvas-reference-actions nodrag">
               <span>参考图节点</span>
-              <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconPlus/></template>添加图片</a-button>
-              <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="app.onCanvasImageFiles(id, $event)"/>
+              <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconRefresh/></template>替换图片</a-button>
+              <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="app.onCanvasImageFiles(id, $event)"/>
             </div>
             <Handle type="source" :position="Position.Right" />
           </div>
