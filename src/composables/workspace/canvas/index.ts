@@ -1,17 +1,29 @@
-import {onUnmounted, ref, type Ref} from "vue";
+import {onUnmounted, ref, watch, type Ref} from "vue";
+import type {EdgeMouseEvent, ViewportTransform} from "@vue-flow/core";
 import {OpenAIConnection} from "../../../api";
 import {
   CanvasGraph,
+  DEFAULT_CANVAS_VIEWPORT,
   type CanvasImageAsset,
   type CanvasNode,
   type CanvasNodeData,
+  type CanvasViewport,
 } from "../../../canvas";
 import {
   base64ToBlob,
   modelSelectionKey,
   type ConnectionProfile,
   type ResolvedModel,
+  type ResultImage,
 } from "../../../domain/models";
+import {
+  deleteCanvasDocument as deleteStoredCanvasDocument,
+  getCanvasDocument,
+  listCanvasDocuments,
+  putCanvasDocument,
+  type CanvasDocumentMeta,
+  type StoredCanvasDocument,
+} from "../../../services/canvas-storage";
 import {arrayBufferToBase64, type GenerationTransport} from "../../../services/transport";
 import type {GenerationSettings} from "../../settings/generation";
 
@@ -27,16 +39,205 @@ interface CanvasWorkspaceOptions {
   nextTaskId(): number;
   errorMessage(value: unknown): string;
   resolvePromptSystemPrompt(modelName: string): Promise<string>;
+  error: Ref<string>;
+  copyResultPrompt(image: ResultImage): Promise<void>;
+  copyResultImage(image: ResultImage): Promise<void>;
+  saveImage(image: ResultImage): Promise<void>;
+}
+
+interface CanvasImageContextMenuState {
+  image: ResultImage;
+  x: number;
+  y: number;
 }
 
 export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
   const canvasNodes = options.graph.nodes;
   const canvasEdges = options.graph.edges;
   const canvasBusyCount = ref(0);
+  const canvasDocuments = ref<CanvasDocumentMeta[]>([]);
+  const canvasLibraryLoading = ref(false);
+  const canvasLibraryOpen = ref(true);
+  const activeCanvas = ref<CanvasDocumentMeta | null>(null);
+  const canvasViewport = ref<CanvasViewport>({...DEFAULT_CANVAS_VIEWPORT});
+  const canvasImageContextMenu = ref<CanvasImageContextMenuState | null>(null);
   const controllers = new Map<string, AbortController>();
+  let libraryInitialized = false;
+  let persistenceSuspended = false;
+  let canvasDirty = false;
+  let persistTimer: number | null = null;
+  let persistQueue: Promise<void> = Promise.resolve();
 
-  function seedCanvas() {
-    options.graph.seed(canvasNodeDefaults("text"), canvasNodeDefaults("image"));
+  async function enterCanvasWorkspace() {
+    await initializeCanvasLibrary();
+    await showCanvasLibrary();
+  }
+
+  async function initializeCanvasLibrary() {
+    if (libraryInitialized) return;
+    canvasLibraryLoading.value = true;
+    try {
+      canvasDocuments.value = await listCanvasDocuments();
+      if (canvasDocuments.value.length === 0) {
+        const document = createBlankCanvasDocument("画布 1");
+        await putCanvasDocument(document);
+        canvasDocuments.value = [documentMeta(document)];
+      }
+      libraryInitialized = true;
+    } catch (reason) {
+      reportCanvasStorageError("加载", reason);
+    } finally {
+      canvasLibraryLoading.value = false;
+    }
+  }
+
+  async function createCanvas() {
+    if (canvasLibraryLoading.value || canvasBusyCount.value > 0) return;
+    canvasLibraryLoading.value = true;
+    try {
+      const document = createBlankCanvasDocument(nextCanvasName());
+      await putCanvasDocument(document);
+      canvasDocuments.value = [documentMeta(document), ...canvasDocuments.value];
+      loadCanvasDocument(document);
+    } catch (reason) {
+      reportCanvasStorageError("新建", reason);
+    } finally {
+      canvasLibraryLoading.value = false;
+    }
+  }
+
+  async function openCanvas(id: string) {
+    if (canvasLibraryLoading.value || canvasBusyCount.value > 0) return;
+    canvasLibraryLoading.value = true;
+    try {
+      const document = await getCanvasDocument(id);
+      if (!document) throw new Error("画布不存在或已经被删除");
+      loadCanvasDocument(document);
+    } catch (reason) {
+      reportCanvasStorageError("打开", reason);
+    } finally {
+      canvasLibraryLoading.value = false;
+    }
+  }
+
+  async function showCanvasLibrary() {
+    if (canvasBusyCount.value > 0) return;
+    closeCanvasImageContextMenu();
+    await flushActiveCanvas();
+    persistenceSuspended = true;
+    activeCanvas.value = null;
+    canvasLibraryOpen.value = true;
+    options.graph.clear();
+    canvasViewport.value = {...DEFAULT_CANVAS_VIEWPORT};
+    persistenceSuspended = false;
+    if (libraryInitialized) {
+      try {
+        canvasDocuments.value = await listCanvasDocuments();
+      } catch (reason) {
+        reportCanvasStorageError("刷新", reason);
+      }
+    }
+  }
+
+  async function deleteCanvasDocument(id: string) {
+    const document = canvasDocuments.value.find((item) => item.id === id);
+    if (!document || !window.confirm(`确定删除“${document.name}”吗？此操作无法撤销。`)) return;
+    canvasLibraryLoading.value = true;
+    try {
+      await deleteStoredCanvasDocument(id);
+      canvasDocuments.value = canvasDocuments.value.filter((item) => item.id !== id);
+    } catch (reason) {
+      reportCanvasStorageError("删除", reason);
+    } finally {
+      canvasLibraryLoading.value = false;
+    }
+  }
+
+  function loadCanvasDocument(document: StoredCanvasDocument) {
+    persistenceSuspended = true;
+    options.graph.load(document.snapshot);
+    canvasViewport.value = normalizeCanvasViewport(document.viewport);
+    activeCanvas.value = documentMeta(document);
+    canvasLibraryOpen.value = false;
+    canvasDirty = false;
+    persistenceSuspended = false;
+  }
+
+  function createBlankCanvasDocument(name: string): StoredCanvasDocument {
+    const now = Date.now();
+    return {
+      id: globalThis.crypto?.randomUUID?.()
+          ?? `canvas-${now}-${Math.random().toString(36).slice(2)}`,
+      name,
+      createdAt: now,
+      updatedAt: now,
+      viewport: {...DEFAULT_CANVAS_VIEWPORT},
+      snapshot: {version: 1, nodes: [], edges: []},
+    };
+  }
+
+  function nextCanvasName(): string {
+    const names = new Set(canvasDocuments.value.map((item) => item.name));
+    let index = 1;
+    while (names.has(`画布 ${index}`)) index += 1;
+    return `画布 ${index}`;
+  }
+
+  function scheduleCanvasPersistence() {
+    if (persistenceSuspended || !activeCanvas.value) return;
+    canvasDirty = true;
+    if (persistTimer !== null) window.clearTimeout(persistTimer);
+    persistTimer = window.setTimeout(() => {
+      persistTimer = null;
+      void persistActiveCanvas();
+    }, 350);
+  }
+
+  async function persistActiveCanvas() {
+    const current = activeCanvas.value;
+    if (!current || !canvasDirty) return persistQueue;
+    canvasDirty = false;
+    const updatedAt = Date.now();
+    const document: StoredCanvasDocument = {
+      ...current,
+      updatedAt,
+      snapshot: options.graph.snapshot(),
+      viewport: {...canvasViewport.value},
+    };
+    activeCanvas.value = documentMeta(document);
+    canvasDocuments.value = [
+      documentMeta(document),
+      ...canvasDocuments.value.filter((item) => item.id !== document.id),
+    ];
+    persistQueue = persistQueue
+        .then(() => putCanvasDocument(document))
+        .catch((reason) => reportCanvasStorageError("保存", reason));
+    return persistQueue;
+  }
+
+  async function flushActiveCanvas() {
+    if (persistTimer !== null) {
+      window.clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    await persistActiveCanvas();
+  }
+
+  function updateCanvasViewport(viewport: ViewportTransform) {
+    canvasViewport.value = normalizeCanvasViewport(viewport);
+  }
+
+  function formatCanvasUpdatedAt(timestamp: number): string {
+    return new Date(timestamp).toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function reportCanvasStorageError(action: string, reason: unknown) {
+    options.error.value = `画布${action}失败: ${options.errorMessage(reason)}`;
   }
 
   function addCanvasTextNode() {
@@ -101,6 +302,12 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     options.graph.replaceEdges(edges);
   }
 
+  function onCanvasEdgeDoubleClick({edge, event}: EdgeMouseEvent) {
+    if (!options.graph.removeManualEdge(edge.id)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   function deleteCanvasNode(id: string) {
     for (const removedId of options.graph.deleteNode(id)) {
       controllers.get(removedId)?.abort();
@@ -120,6 +327,48 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
 
   function removeCanvasReference(nodeId: string, assetId: string) {
     options.graph.removeReference(nodeId, assetId);
+  }
+
+  function openCanvasImageContextMenu(event: MouseEvent, nodeId: string, assetId: string) {
+    const node = options.graph.findNode(nodeId);
+    const asset = node
+        ? [...node.data.references, ...node.data.outputs].find((item) => item.id === assetId)
+        : null;
+    if (!node || !asset) return;
+    const menuWidth = 176;
+    const menuHeight = 122;
+    const padding = 8;
+    canvasImageContextMenu.value = {
+      image: {
+        id: asset.id,
+        blob: asset.blob,
+        mime: asset.mime,
+        prompt: node.data.prompt,
+        previewUrl: asset.url,
+        createdAt: Date.now(),
+      },
+      x: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+      y: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
+    };
+  }
+
+  function closeCanvasImageContextMenu() {
+    canvasImageContextMenu.value = null;
+  }
+
+  async function copyCanvasImagePrompt(image: ResultImage) {
+    closeCanvasImageContextMenu();
+    await options.copyResultPrompt(image);
+  }
+
+  async function copyCanvasImage(image: ResultImage) {
+    closeCanvasImageContextMenu();
+    await options.copyResultImage(image);
+  }
+
+  async function saveCanvasImage(image: ResultImage) {
+    closeCanvasImageContextMenu();
+    await options.saveImage(image);
   }
 
   async function assetDataUrl(asset: CanvasImageAsset): Promise<string> {
@@ -304,7 +553,7 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
           options.nextTaskId()
       );
       if (blobs.length === 0) throw new Error("响应中没有图片数据");
-      options.graph.addGeneratedOutputs(nodeId, blobs);
+      options.graph.addGeneratedOutputs(nodeId, blobs, prompt);
       updateCanvasNodeData(nodeId, {status: "success"});
     } catch (reason) {
       updateCanvasNodeData(nodeId, controller.signal.aborted
@@ -328,9 +577,15 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     options.graph.clear();
   }
 
+  watch([canvasNodes, canvasEdges], scheduleCanvasPersistence, {flush: "sync"});
+  watch(canvasViewport, scheduleCanvasPersistence, {deep: true, flush: "sync"});
+
   onUnmounted(() => {
+    if (persistTimer !== null) window.clearTimeout(persistTimer);
+    void persistActiveCanvas();
     for (const controller of controllers.values()) controller.abort();
     controllers.clear();
+    closeCanvasImageContextMenu();
     options.graph.dispose();
   });
 
@@ -338,23 +593,59 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     canvasNodes,
     canvasEdges,
     canvasBusyCount,
-    seedCanvas,
+    canvasDocuments,
+    canvasLibraryLoading,
+    canvasLibraryOpen,
+    activeCanvas,
+    canvasViewport,
+    canvasImageContextMenu,
+    enterCanvasWorkspace,
+    createCanvas,
+    openCanvas,
+    showCanvasLibrary,
+    deleteCanvasDocument,
+    updateCanvasViewport,
+    formatCanvasUpdatedAt,
     addCanvasTextNode,
     addCanvasImageNode,
     updateCanvasNodeData,
     onCanvasConnect,
     onCanvasNodesUpdate,
     onCanvasEdgesUpdate,
+    onCanvasEdgeDoubleClick,
     deleteCanvasNode,
     canvasNodeModelSelection,
     onCanvasNodeModelChange,
     onCanvasImageFiles,
     openCanvasImagePicker,
     removeCanvasReference,
+    openCanvasImageContextMenu,
+    closeCanvasImageContextMenu,
+    copyCanvasImagePrompt,
+    copyCanvasImage,
+    saveCanvasImage,
     generateCanvasText,
     generateCanvasImage,
     stopCanvasNode,
     clearCanvas,
+  };
+}
+
+function documentMeta(document: StoredCanvasDocument): CanvasDocumentMeta {
+  return {
+    id: document.id,
+    name: document.name,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+  };
+}
+
+function normalizeCanvasViewport(viewport: Partial<CanvasViewport> | null | undefined): CanvasViewport {
+  const zoom = Number(viewport?.zoom);
+  return {
+    x: Number.isFinite(viewport?.x) ? Number(viewport?.x) : DEFAULT_CANVAS_VIEWPORT.x,
+    y: Number.isFinite(viewport?.y) ? Number(viewport?.y) : DEFAULT_CANVAS_VIEWPORT.y,
+    zoom: Number.isFinite(zoom) ? Math.max(0.2, Math.min(2.5, zoom)) : DEFAULT_CANVAS_VIEWPORT.zoom,
   };
 }
 

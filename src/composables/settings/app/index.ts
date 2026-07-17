@@ -25,6 +25,7 @@ interface AppSettingsOptions {
 
 export function useAppSettings(options: AppSettingsOptions) {
   const autoCheckUpdate = ref(true);
+  const userName = ref(createDefaultUserName());
   restore();
   options.providers.ensureModelSelections();
   options.providers.initializeDraft();
@@ -44,6 +45,7 @@ export function useAppSettings(options: AppSettingsOptions) {
         options.generation.retryStatusCodeOptions,
         options.generation.retryCount,
         autoCheckUpdate,
+        userName,
         options.themeMode,
         options.generation.size,
         options.generation.customWidth,
@@ -55,7 +57,8 @@ export function useAppSettings(options: AppSettingsOptions) {
         options.providers.chatModelSelection,
         options.providers.titleModelSelection,
       ],
-      persist
+      persist,
+      {deep: true, immediate: true}
   );
 
   function restore() {
@@ -115,6 +118,9 @@ export function useAppSettings(options: AppSettingsOptions) {
       ].sort((left, right) => left - right);
       options.generation.retryCount.value = settings.retryCount ?? 5;
       autoCheckUpdate.value = settings.autoCheckUpdate ?? true;
+      userName.value = typeof settings.userName === "string" && settings.userName.trim()
+          ? settings.userName.trim().slice(0, 64)
+          : userName.value;
       options.generation.size.value = typeof settings.size === "string" && [
         "auto",
         "1024x1024",
@@ -175,6 +181,7 @@ export function useAppSettings(options: AppSettingsOptions) {
       retryStatusCodeOptions: generation.retryStatusCodeOptions.value,
       retryCount: generation.retryCount.value,
       autoCheckUpdate: autoCheckUpdate.value,
+      userName: userName.value.trim().slice(0, 64),
       themeMode: options.themeMode.value,
       size: generation.size.value,
       customWidth: generation.customWidth.value,
@@ -188,5 +195,10 @@ export function useAppSettings(options: AppSettingsOptions) {
     }));
   }
 
-  return {autoCheckUpdate};
+  return {autoCheckUpdate, userName};
+}
+
+function createDefaultUserName(): string {
+  const suffix = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
+  return `用户${suffix}`;
 }

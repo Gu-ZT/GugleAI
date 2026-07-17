@@ -13,6 +13,101 @@
   gap: 7px;
 }
 
+.canvas-toolbar-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.canvas-toolbar-title > .arco-btn {
+  flex: 0 0 auto;
+}
+
+.canvas-toolbar-title > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.canvas-library-toolbar {
+  flex: 0 0 auto;
+}
+
+.canvas-library {
+  flex: 1;
+  min-height: 360px;
+  overflow: hidden;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.canvas-library-loading,
+.canvas-library > .arco-spin,
+.canvas-library .arco-spin-children,
+.canvas-library-scroll {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.canvas-library-list {
+  width: 100%;
+}
+
+.canvas-library-row {
+  display: grid;
+  min-width: 0;
+  min-height: 64px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.canvas-library-row:hover {
+  background: var(--color-fill-1);
+}
+
+.canvas-library-icon {
+  width: 20px;
+  height: 20px;
+  justify-self: center;
+  color: rgb(var(--primary-6));
+}
+
+.canvas-library-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.canvas-library-info strong,
+.canvas-library-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-library-info strong {
+  color: var(--color-text-1);
+  font-size: 13px;
+}
+
+.canvas-library-info span {
+  color: var(--color-text-4);
+  font-size: 11px;
+}
+
+.canvas-library-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .canvas-shell {
   flex: 1;
   min-height: 460px;
@@ -46,6 +141,21 @@
 .canvas-flow .vue-flow__edge-path {
   stroke: var(--color-text-2);
   stroke-width: 1.6;
+}
+
+.canvas-flow .canvas-edge-manual .vue-flow__edge-path {
+  stroke: var(--color-text-2);
+  stroke-dasharray: none;
+}
+
+.canvas-flow .canvas-edge-manual:hover .vue-flow__edge-path {
+  stroke: rgb(var(--danger-6));
+  stroke-width: 2;
+}
+
+.canvas-flow .canvas-edge-automatic .vue-flow__edge-path {
+  stroke: rgb(var(--primary-6));
+  stroke-dasharray: 5 5;
 }
 
 .canvas-flow .vue-flow__handle {
@@ -188,7 +298,7 @@
 
 .canvas-node-images {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 

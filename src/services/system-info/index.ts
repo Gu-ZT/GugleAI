@@ -8,7 +8,11 @@ interface SystemInfo {
 
 let systemInfoPromise: Promise<SystemInfo> | null = null;
 
-export async function resolvePromptTemplate(template: string, modelName: string): Promise<string> {
+export async function resolvePromptTemplate(
+    template: string,
+    modelName: string,
+    userName: string
+): Promise<string> {
   if (!template) return "";
   const now = new Date();
   const locale = navigator.language || "zh-CN";
@@ -21,7 +25,7 @@ export async function resolvePromptTemplate(template: string, modelName: string)
     arch: systemInfo.arch,
     language: locale,
     model_name: modelName,
-    username: systemInfo.username,
+    username: userName,
   };
   return template.replace(/\{\{(date|time|datetime|system|arch|language|model_name|username)}}/g, (
       _match,

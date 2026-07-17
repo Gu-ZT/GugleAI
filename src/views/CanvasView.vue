@@ -1,13 +1,23 @@
 <script setup lang="ts">
-import {ref} from "vue";
+import {onMounted, ref} from "vue";
 import {Handle, Position, VueFlow, type ViewportTransform} from "@vue-flow/core";
-import {IconClose, IconPlus, IconRefresh, IconStop} from "@arco-design/web-vue/es/icon";
+import {
+  IconArrowLeft,
+  IconClose,
+  IconDelete,
+  IconFolder,
+  IconPlus,
+  IconRefresh,
+  IconStop,
+} from "@arco-design/web-vue/es/icon";
 import "@vue-flow/core/dist/style.css";
 import "@vue-flow/core/dist/theme-default.css";
 
-defineProps<{app: any}>();
+const props = defineProps<{app: any}>();
 
-const canvasSelectTriggerProps = ref(createCanvasSelectTriggerProps(0.9));
+const canvasSelectTriggerProps = ref(createCanvasSelectTriggerProps(0.35));
+
+onMounted(() => void props.app.enterCanvasWorkspace());
 
 function createCanvasSelectTriggerProps(zoom: number) {
   return {
@@ -21,127 +31,222 @@ function createCanvasSelectTriggerProps(zoom: number) {
 
 function onCanvasViewportChange(viewport: ViewportTransform) {
   canvasSelectTriggerProps.value = createCanvasSelectTriggerProps(viewport.zoom);
+  props.app.updateCanvasViewport(viewport);
+  props.app.closeCanvasImageContextMenu();
 }
 </script>
 
 <template>
   <section class="canvas-workspace">
-    <div class="workspace-toolbar canvas-toolbar">
-      <div>
-        <strong>无尽画布</strong>
-        <span class="workspace-meta">{{ app.connectionProfiles.length }} 个 API 连接</span>
+    <template v-if="app.canvasLibraryOpen">
+      <div class="workspace-toolbar canvas-library-toolbar">
+        <div>
+          <strong>选择画布</strong>
+          <span class="workspace-meta">无尽画布</span>
+        </div>
+        <a-button type="primary" size="small" :loading="app.canvasLibraryLoading" @click="app.createCanvas">
+          <template #icon><IconPlus/></template>
+          新建画布
+        </a-button>
       </div>
-      <div class="canvas-toolbar-actions">
-        <a-button size="small" @click="app.addCanvasTextNode">＋文字节点</a-button>
-        <a-button size="small" @click="app.addCanvasImageNode">＋图像节点</a-button>
-        <a-button size="small" status="danger" :disabled="app.canvasNodes.length === 0" @click="app.clearCanvas">清空画布</a-button>
-      </div>
-    </div>
-    <div class="canvas-shell">
-      <VueFlow
-          id="main-canvas"
-          :nodes="app.canvasNodes"
-          :edges="app.canvasEdges"
-          class="canvas-flow"
-          :min-zoom="0.2"
-          :max-zoom="2.5"
-          :default-viewport="{ x: 0, y: 0, zoom: 0.9 }"
-          fit-view-on-init
-          @viewport-change="onCanvasViewportChange"
-          @connect="app.onCanvasConnect"
-          @update:nodes="app.onCanvasNodesUpdate"
-          @update:edges="app.onCanvasEdgesUpdate"
-      >
-        <template #node-text="{ id, data }">
-          <div class="canvas-node canvas-text-node">
-            <Handle type="target" :position="Position.Left" />
-            <div class="canvas-node-header">
-              <strong>{{ data.title }}</strong>
-              <a-button type="text" shape="circle" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)"><IconClose/></a-button>
-            </div>
-            <div class="canvas-node-config nodrag">
-              <div class="canvas-node-model-field">
-                <span>模型</span>
-                <a-select
-                    :model-value="app.canvasNodeModelSelection(data)"
-                    :options="app.textModelSelectOptions"
-                    :trigger-props="canvasSelectTriggerProps"
-                    class="model-provider-select"
-                    @change="app.onCanvasNodeModelChange(id, $event)"
-                >
-                  <template #label="{data: selectedOption}">
-                    <span class="selected-model-label">{{ selectedOption.label }}</span>
-                    <a-tag v-if="selectedOption.providerName" size="small" class="model-provider-tag">{{ selectedOption.providerName }}</a-tag>
-                  </template>
-                </a-select>
-              </div>
-            </div>
-            <a-textarea v-model="data.text" class="nodrag" :auto-size="{ minRows: 5, maxRows: 10 }" placeholder="输入文字内容"/>
-            <p v-if="data.error" class="canvas-node-error nodrag">{{ data.error }}</p>
-            <div class="canvas-node-actions nodrag">
-              <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
-              <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
-              <a-button v-if="data.status === 'running'" status="danger" @click.stop="app.stopCanvasNode(id)"><template #icon><IconStop/></template>停止</a-button>
-              <a-button v-else type="primary" @click.stop="app.generateCanvasText(id)">生成文字</a-button>
-            </div>
-            <Handle type="source" :position="Position.Right" />
-          </div>
-        </template>
 
-        <template #node-image="{ id, data }">
-          <div class="canvas-node canvas-image-node" :class="{ readonly: data.readOnly }">
-            <Handle type="target" :position="Position.Left" />
-            <div class="canvas-node-header">
-              <strong>{{ data.title }}</strong>
-              <a-button type="text" shape="circle" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)"><IconClose/></a-button>
-            </div>
-            <div v-if="data.references.length === 0" class="canvas-node-config nodrag">
-              <div class="canvas-node-model-field">
-                <span>模型</span>
-                <a-select
-                    :model-value="app.canvasNodeModelSelection(data)"
-                    :options="app.imageModelSelectOptions"
-                    :trigger-props="canvasSelectTriggerProps"
-                    class="model-provider-select"
-                    @change="app.onCanvasNodeModelChange(id, $event)"
-                >
-                  <template #label="{data: selectedOption}">
-                    <span class="selected-model-label">{{ selectedOption.label }}</span>
-                    <a-tag v-if="selectedOption.providerName" size="small" class="model-provider-tag">{{ selectedOption.providerName }}</a-tag>
-                  </template>
-                </a-select>
+      <div class="canvas-library">
+        <a-spin :loading="app.canvasLibraryLoading" class="canvas-library-loading">
+          <a-scrollbar class="canvas-library-scroll" :disable-horizontal="true">
+            <div v-if="app.canvasDocuments.length" class="canvas-library-list">
+              <div
+                  v-for="document in app.canvasDocuments"
+                  :key="document.id"
+                  class="canvas-library-row"
+                  @dblclick="app.openCanvas(document.id)"
+              >
+                <IconFolder class="canvas-library-icon" aria-hidden="true"/>
+                <div class="canvas-library-info">
+                  <strong>{{ document.name }}</strong>
+                  <span>最后编辑 {{ app.formatCanvasUpdatedAt(document.updatedAt) }}</span>
+                </div>
+                <div class="canvas-library-actions">
+                  <a-button size="small" @click="app.openCanvas(document.id)">打开</a-button>
+                  <a-button
+                      type="text"
+                      shape="circle"
+                      status="danger"
+                      title="删除画布"
+                      aria-label="删除画布"
+                      @click.stop="app.deleteCanvasDocument(document.id)"
+                  ><IconDelete/></a-button>
+                </div>
               </div>
             </div>
-            <div v-if="data.references.length" class="canvas-node-images nodrag">
-              <div v-for="asset in data.references" :key="asset.id" class="canvas-node-image">
-                <img :src="asset.url" :alt="asset.name" :title="asset.name"/>
-                <a-button v-if="!data.readOnly" type="text" shape="circle" title="移除图片" @click.stop="app.removeCanvasReference(id, asset.id)"><IconClose/></a-button>
+            <a-empty v-else description="暂无画布"/>
+          </a-scrollbar>
+        </a-spin>
+      </div>
+    </template>
+
+    <template v-else>
+      <div class="workspace-toolbar canvas-toolbar">
+        <div class="canvas-toolbar-title">
+          <a-button
+              type="text"
+              shape="circle"
+              title="返回画布列表"
+              aria-label="返回画布列表"
+              :disabled="app.canvasBusyCount > 0"
+              @click="app.showCanvasLibrary"
+          ><IconArrowLeft/></a-button>
+          <div>
+            <strong>{{ app.activeCanvas?.name }}</strong>
+            <span class="workspace-meta">{{ app.connectionProfiles.length }} 个 API 连接</span>
+          </div>
+        </div>
+        <div class="canvas-toolbar-actions">
+          <a-button size="small" @click="app.addCanvasTextNode">
+            <template #icon><IconPlus/></template>
+            文字节点
+          </a-button>
+          <a-button size="small" @click="app.addCanvasImageNode">
+            <template #icon><IconPlus/></template>
+            图像节点
+          </a-button>
+          <a-button size="small" status="danger" :disabled="app.canvasNodes.length === 0" @click="app.clearCanvas">
+            清空画布
+          </a-button>
+        </div>
+      </div>
+      <div class="canvas-shell">
+        <VueFlow
+            :key="app.activeCanvas?.id"
+            id="main-canvas"
+            :nodes="app.canvasNodes"
+            :edges="app.canvasEdges"
+            class="canvas-flow"
+            :min-zoom="0.2"
+            :max-zoom="2.5"
+            :default-viewport="app.canvasViewport"
+            @viewport-change="onCanvasViewportChange"
+            @connect="app.onCanvasConnect"
+            @update:nodes="app.onCanvasNodesUpdate"
+            @update:edges="app.onCanvasEdgesUpdate"
+            @edge-double-click="app.onCanvasEdgeDoubleClick"
+        >
+          <template #node-text="{ id, data }">
+            <div class="canvas-node canvas-text-node">
+              <Handle type="target" :position="Position.Left" />
+              <div class="canvas-node-header">
+                <strong>{{ data.title }}</strong>
+                <a-button type="text" shape="circle" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)"><IconClose/></a-button>
               </div>
-            </div>
-            <p v-else-if="data.readOnly" class="canvas-empty-image nodrag">暂无图片</p>
-            <template v-if="!data.readOnly && data.references.length === 0">
-              <a-textarea v-model="data.prompt" class="nodrag" :auto-size="{ minRows: 3, maxRows: 8 }" placeholder="描述要生成的图片"/>
-              <div class="canvas-image-options nodrag">
-                <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconPlus/></template>添加参考图</a-button>
-                <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="app.onCanvasImageFiles(id, $event)"/>
-                <label>数量 <a-input-number v-model="data.count" :min="1" :max="10" @click.stop/></label>
+              <div class="canvas-node-config nodrag">
+                <div class="canvas-node-model-field">
+                  <span>模型</span>
+                  <a-select
+                      :model-value="app.canvasNodeModelSelection(data)"
+                      :options="app.textModelSelectOptions"
+                      :trigger-props="canvasSelectTriggerProps"
+                      class="model-provider-select"
+                      @change="app.onCanvasNodeModelChange(id, $event)"
+                  >
+                    <template #label="{data: selectedOption}">
+                      <span class="selected-model-label">{{ selectedOption.label }}</span>
+                      <a-tag v-if="selectedOption.providerName" size="small" class="model-provider-tag">{{ selectedOption.providerName }}</a-tag>
+                    </template>
+                  </a-select>
+                </div>
               </div>
+              <a-textarea
+                  :model-value="data.text"
+                  class="nodrag"
+                  :auto-size="{ minRows: 5, maxRows: 10 }"
+                  placeholder="输入文字内容"
+                  @update:model-value="app.updateCanvasNodeData(id, {text: $event})"
+              />
+              <p v-if="data.error" class="canvas-node-error nodrag">{{ data.error }}</p>
               <div class="canvas-node-actions nodrag">
                 <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
                 <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
                 <a-button v-if="data.status === 'running'" status="danger" @click.stop="app.stopCanvasNode(id)"><template #icon><IconStop/></template>停止</a-button>
-                <a-button v-else type="primary" @click.stop="app.generateCanvasImage(id)">生成图片</a-button>
+                <a-button v-else type="primary" @click.stop="app.generateCanvasText(id)">生成文字</a-button>
               </div>
-            </template>
-            <div v-else-if="!data.readOnly" class="canvas-reference-actions nodrag">
-              <span>参考图节点</span>
-              <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconRefresh/></template>替换图片</a-button>
-              <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="app.onCanvasImageFiles(id, $event)"/>
+              <Handle type="source" :position="Position.Right" />
             </div>
-            <Handle type="source" :position="Position.Right" />
-          </div>
-        </template>
-      </VueFlow>
-    </div>
+          </template>
+
+          <template #node-image="{ id, data }">
+            <div class="canvas-node canvas-image-node" :class="{ readonly: data.readOnly }">
+              <Handle type="target" :position="Position.Left" />
+              <div class="canvas-node-header">
+                <strong>{{ data.title }}</strong>
+                <a-button type="text" shape="circle" class="canvas-node-delete nodrag" title="删除节点" @click.stop="app.deleteCanvasNode(id)"><IconClose/></a-button>
+              </div>
+              <div v-if="data.references.length === 0" class="canvas-node-config nodrag">
+                <div class="canvas-node-model-field">
+                  <span>模型</span>
+                  <a-select
+                      :model-value="app.canvasNodeModelSelection(data)"
+                      :options="app.imageModelSelectOptions"
+                      :trigger-props="canvasSelectTriggerProps"
+                      class="model-provider-select"
+                      @change="app.onCanvasNodeModelChange(id, $event)"
+                  >
+                    <template #label="{data: selectedOption}">
+                      <span class="selected-model-label">{{ selectedOption.label }}</span>
+                      <a-tag v-if="selectedOption.providerName" size="small" class="model-provider-tag">{{ selectedOption.providerName }}</a-tag>
+                    </template>
+                  </a-select>
+                </div>
+              </div>
+              <div v-if="data.references.length" class="canvas-node-images nodrag">
+                <div v-for="asset in data.references" :key="asset.id" class="canvas-node-image">
+                  <img
+                      :src="asset.url"
+                      :alt="asset.name"
+                      :title="asset.name"
+                      @contextmenu.prevent.stop="app.openCanvasImageContextMenu($event, id, asset.id)"
+                  />
+                  <a-button v-if="!data.readOnly" type="text" shape="circle" title="移除图片" @click.stop="app.removeCanvasReference(id, asset.id)"><IconClose/></a-button>
+                </div>
+              </div>
+              <p v-else-if="data.readOnly" class="canvas-empty-image nodrag">暂无图片</p>
+              <template v-if="!data.readOnly && data.references.length === 0">
+                <a-textarea
+                    :model-value="data.prompt"
+                    class="nodrag"
+                    :auto-size="{ minRows: 3, maxRows: 8 }"
+                    placeholder="描述要生成的图片"
+                    @update:model-value="app.updateCanvasNodeData(id, {prompt: $event})"
+                />
+                <div class="canvas-image-options nodrag">
+                  <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconPlus/></template>添加参考图</a-button>
+                  <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="app.onCanvasImageFiles(id, $event)"/>
+                  <label>
+                    数量
+                    <a-input-number
+                        :model-value="data.count"
+                        :min="1"
+                        :max="10"
+                        @click.stop
+                        @update:model-value="app.updateCanvasNodeData(id, {count: $event})"
+                    />
+                  </label>
+                </div>
+                <div class="canvas-node-actions nodrag">
+                  <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
+                  <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
+                  <a-button v-if="data.status === 'running'" status="danger" @click.stop="app.stopCanvasNode(id)"><template #icon><IconStop/></template>停止</a-button>
+                  <a-button v-else type="primary" @click.stop="app.generateCanvasImage(id)">生成图片</a-button>
+                </div>
+              </template>
+              <div v-else-if="!data.readOnly" class="canvas-reference-actions nodrag">
+                <span>参考图节点</span>
+                <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconRefresh/></template>替换图片</a-button>
+                <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="app.onCanvasImageFiles(id, $event)"/>
+              </div>
+              <Handle type="source" :position="Position.Right" />
+            </div>
+          </template>
+        </VueFlow>
+      </div>
+    </template>
   </section>
 </template>

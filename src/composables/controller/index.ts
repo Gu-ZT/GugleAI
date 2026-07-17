@@ -49,7 +49,7 @@ export function useAppController() {
     proxyForLog: systemFetch.proxyForLog,
   });
   const settings = useAppSettings({providers, generation, themeMode});
-  const agents = useAgentSettings();
+  const agents = useAgentSettings(settings.userName);
   let taskSequence = 0;
   const nextTaskId = () => ++taskSequence;
 
@@ -99,6 +99,10 @@ export function useAppController() {
     nextTaskId,
     errorMessage: logger.errorMessage,
     resolvePromptSystemPrompt: agents.resolveCanvasPromptSystemPrompt,
+    error,
+    copyResultPrompt: resultHistory.copyResultPrompt,
+    copyResultImage: resultHistory.copyResultImage,
+    saveImage: images.saveImage,
   });
   const updater = useUpdater(systemFetch.fetch, logger.log, error);
   const appBusy = computed(
@@ -109,13 +113,15 @@ export function useAppController() {
     if (appBusy.value) return;
     resultHistory.closeResultContextMenu();
     resultHistory.closeResultLightbox();
-    if (mode === "canvas") canvas.seedCanvas();
+    canvas.closeCanvasImageContextMenu();
+    if (appMode.value === "canvas" && mode !== "canvas") await canvas.showCanvasLibrary();
+    if (mode === "canvas") await canvas.enterCanvasWorkspace();
     await router.push({name: mode === "settings" ? "settings-models" : mode});
   }
 
   onMounted(async () => {
     await resultHistory.restoreResultHistory();
-    if (appMode.value === "canvas") canvas.seedCanvas();
+    if (appMode.value === "canvas") await canvas.enterCanvasWorkspace();
     if (settings.autoCheckUpdate.value) void updater.checkUpdate(false);
   });
 

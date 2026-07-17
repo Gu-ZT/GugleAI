@@ -1,4 +1,4 @@
-import {computed, ref, watch} from "vue";
+import {computed, ref, watch, type Ref} from "vue";
 import {
   AGENT_SETTINGS_KEY,
   DEFAULT_CANVAS_PROMPT_SYSTEM_PROMPT,
@@ -11,7 +11,7 @@ import {
 } from "../../../domain/agents";
 import {resolvePromptTemplate} from "../../../services/system-info";
 
-export function useAgentSettings() {
+export function useAgentSettings(userName: Ref<string>) {
   const canvasPromptSystemPrompt = ref(DEFAULT_CANVAS_PROMPT_SYSTEM_PROMPT);
   const chatAgents = ref<ChatAgent[]>([defaultChatAgent()]);
   const selectedChatAgentId = ref(DEFAULT_CHAT_AGENT_ID);
@@ -48,11 +48,15 @@ export function useAgentSettings() {
   }
 
   async function resolveChatSystemPrompt(modelName: string): Promise<string> {
-    return resolvePromptTemplate(selectedChatAgent.value?.systemPrompt ?? "", modelName);
+    return resolvePromptTemplate(
+        selectedChatAgent.value?.systemPrompt ?? "",
+        modelName,
+        userName.value
+    );
   }
 
   async function resolveCanvasPromptSystemPrompt(modelName: string): Promise<string> {
-    return resolvePromptTemplate(canvasPromptSystemPrompt.value, modelName);
+    return resolvePromptTemplate(canvasPromptSystemPrompt.value, modelName, userName.value);
   }
 
   function restore() {

@@ -15,12 +15,12 @@ A desktop image generation client built with Tauri 2 + Vue 3, working with the O
 - **Multiple workspaces**: switch between image generation, text chat, and the infinite canvas from a compact left navigation rail; each workspace is now a separate Vue Router page
 - **Providers and models**: add, name, and edit providers directly in the Model Settings detail pane, each with its own API endpoint, key, and model list; navigating with unsaved changes prompts you to save, discard, or keep editing; models support an ID, optional display name and description, image-model flag, and context length through a dedicated modal
 - **Organized settings**: the Settings page has nested routes for Model Settings, General Settings, and full-size Logs; entering Settings from the main navigation always opens Model Settings, which adds a secondary provider sidebar
-- **Themes and UI**: choose Light, Dark, or Follow System under General Settings; controls and colors use Arco Design throughout and update live through its theme tokens
+- **General settings and UI**: maintain the user name used by prompt variables and choose Light, Dark, or Follow System under General Settings; first launch creates a default name in the form `用户` plus four random digits; controls and colors use Arco Design throughout and update live through its theme tokens
 - **Agent settings**: edit the Infinite Canvas prompt-generation system prompt, manage chat agents, and switch agents from the Chat composer; the default assistant is editable and custom agents can be added or removed
-- **Prompt variables**: agent system prompts support `{{date}}`, `{{time}}`, `{{datetime}}`, `{{system}}`, `{{arch}}`, `{{language}}`, `{{model_name}}`, and `{{username}}`, resolved from the current environment immediately before each request
+- **Prompt variables**: agent system prompts support `{{date}}`, `{{time}}`, `{{datetime}}`, `{{system}}`, `{{arch}}`, `{{language}}`, `{{model_name}}`, and `{{username}}`, resolved from the current environment and the user name in General Settings immediately before each request
 - **Text chat**: use `/chat/completions` across persistent multiple conversations with create, rename, delete, and per-message copy actions; assistant messages show the actual model, while first exchanges can generate titles asynchronously with a chosen model or title generation can be disabled
 - **Grouped model selection**: Image Generation, Chat, conversation titles, and Infinite Canvas nodes select models grouped by provider, show the selected provider in a tag, and automatically use that provider's endpoint and key
-- **Infinite canvas**: pan and zoom freely; text generation creates a connected text child; generation reads only directly connected upstream nodes, adding text nodes to the prompt and image nodes as references; each reference node stores one image and hides irrelevant model settings
+- **Infinite canvas**: select or create a blank canvas from the canvas library, with nodes, images, edges, and viewport persisted per canvas and a back action from the editor; new canvases start at 35% zoom; manual solid edges and automatic dashed edges are visually distinct, and manual edges can be disconnected with a double-click; text generation creates an automatically connected text child; generation reads only directly connected upstream nodes, adding text nodes to the prompt and image nodes as references; each reference node stores one image and hides irrelevant model settings; node images provide right-click actions to copy prompts or images and save files
 - **Paste-to-configure**: press Ctrl+V to add and switch to an imported connection, supporting newapi channel JSON (`{"_type":"newapi_channel_conn",...}`) and Codex CLI `config.toml` (extracts `base_url`)
 - **Text to image**: generate images from a prompt via `/images/generations`
 - **Reference images**: attach any number of reference images via file picker, drag & drop, or clipboard paste
@@ -45,7 +45,7 @@ The frontend uses Vue Router hash history for `/image`, `/chat`, `/canvas`, and 
 `src/App.vue` now contains only the application shell, router outlet, and global overlays. `src/composables/controller/index.ts` is a composition root that wires dependencies together and exposes the shared view model. Responsibilities are split as follows:
 
 - `src/composables/`: provider and application settings, themes, logging, updates, result history, and the Image, Chat, and Canvas workspace state
-- `src/services/`: OpenAI-compatible generation transport, retries and response parsing, plus IndexedDB preview persistence
+- `src/services/`: OpenAI-compatible generation transport, retries and response parsing, plus IndexedDB preview and canvas persistence
 - `src/domain/`: shared types, defaults, model selection, and normalization helpers
 - `src/api/`, `src/chat/`, and `src/canvas/`: domain objects for API connections, chat sessions, and the canvas graph
 - `src/styles/`: separate style modules for the application shell, settings, Image, Chat, Canvas, result overlays, and responsive rules
@@ -68,7 +68,7 @@ pnpm tauri build
 1. In Model Settings, add a provider, edit its name, endpoint, and key directly in the detail pane, save it, then maintain its models through the model modal
 2. Choose models grouped by provider in Image Generation, Chat, and Infinite Canvas; manually expand Advanced settings for image request options
 3. Create and rename persistent conversations in Chat and select an agent from the composer; Agent Settings lets you edit the default assistant, add custom agents, and configure Canvas prompt generation
-4. In Infinite Canvas, text generation creates a new text child; each image-bearing node stores one replaceable reference, and multiple reference nodes can feed a new empty image node before generation
+4. Select or create a canvas from the Infinite Canvas library; text generation creates an automatically connected text child, while manual edges can be disconnected with a double-click; each image-bearing node stores one replaceable reference, and multiple reference nodes can feed a new empty image node before generation
 5. Image previews remain available; double-click to enlarge, or right-click to copy the image or prompt, use it as a reference, save it, delete it, or clear the full preview history
 
 ## License

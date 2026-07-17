@@ -3,20 +3,38 @@ import {onMounted, onUnmounted, ref} from "vue";
 import {IconClose} from "@arco-design/web-vue/es/icon";
 
 const props = defineProps<{app: any}>();
-const contextMenu = ref<HTMLElement>();
+const resultContextMenu = ref<HTMLElement>();
+const canvasContextMenu = ref<HTMLElement>();
 
 function closeOnOutsidePointer(event: PointerEvent) {
-  if (!contextMenu.value?.contains(event.target as Node)) props.app.closeResultContextMenu();
+  const target = event.target as Node;
+  if (!resultContextMenu.value?.contains(target)) props.app.closeResultContextMenu();
+  if (!canvasContextMenu.value?.contains(target)) props.app.closeCanvasImageContextMenu();
 }
 
-onMounted(() => document.addEventListener("pointerdown", closeOnOutsidePointer));
-onUnmounted(() => document.removeEventListener("pointerdown", closeOnOutsidePointer));
+function closeContextMenus() {
+  props.app.closeResultContextMenu();
+  props.app.closeCanvasImageContextMenu();
+}
+
+onMounted(() => {
+  document.addEventListener("pointerdown", closeOnOutsidePointer);
+  window.addEventListener("blur", closeContextMenus);
+  window.addEventListener("resize", closeContextMenus);
+  window.addEventListener("scroll", closeContextMenus, true);
+});
+onUnmounted(() => {
+  document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  window.removeEventListener("blur", closeContextMenus);
+  window.removeEventListener("resize", closeContextMenus);
+  window.removeEventListener("scroll", closeContextMenus, true);
+});
 </script>
 
 <template>
   <div
       v-if="app.resultContextMenu"
-      ref="contextMenu"
+      ref="resultContextMenu"
       class="result-context-menu"
       role="menu"
       :style="{ left: `${app.resultContextMenu.x}px`, top: `${app.resultContextMenu.y}px` }"
@@ -34,6 +52,26 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeOnOutsidePoin
     <a-button type="text" role="menuitem" @click="app.setResultAsReference(app.resultContextMenu.image)">设置为参考图</a-button>
     <a-button type="text" role="menuitem" @click="app.saveResultFromContextMenu(app.resultContextMenu.image)">保存图片</a-button>
     <a-button type="text" status="danger" class="context-delete" role="menuitem" @click="app.deleteResultFromContextMenu(app.resultContextMenu.image)">删除图片</a-button>
+  </div>
+
+  <div
+      v-if="app.canvasImageContextMenu"
+      ref="canvasContextMenu"
+      class="result-context-menu"
+      role="menu"
+      :style="{ left: `${app.canvasImageContextMenu.x}px`, top: `${app.canvasImageContextMenu.y}px` }"
+      @pointerdown.stop
+      @contextmenu.prevent
+  >
+    <a-button
+        type="text"
+        role="menuitem"
+        :disabled="!app.canvasImageContextMenu.image.prompt"
+        :title="app.canvasImageContextMenu.image.prompt ? '' : '这张图片没有可复制的提示词'"
+        @click="app.copyCanvasImagePrompt(app.canvasImageContextMenu.image)"
+    >复制提示词</a-button>
+    <a-button type="text" role="menuitem" @click="app.copyCanvasImage(app.canvasImageContextMenu.image)">复制到剪贴板</a-button>
+    <a-button type="text" role="menuitem" @click="app.saveCanvasImage(app.canvasImageContextMenu.image)">保存图片</a-button>
   </div>
 
   <div

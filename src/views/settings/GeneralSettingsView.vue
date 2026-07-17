@@ -6,6 +6,12 @@ defineProps<{app: any}>();
   <div class="settings-section">
     <h2>通用设置</h2>
     <div class="settings-form-grid">
+      <h3>个人信息</h3>
+      <label class="field settings-form-wide">
+        <span class="field-label">用户名称</span>
+        <a-input v-model="app.userName" :max-length="64" placeholder="请输入用户名称"/>
+      </label>
+
       <h3>外观</h3>
       <label class="settings-form-wide">
         主题

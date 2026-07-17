@@ -9,6 +9,15 @@ import {
 
 export type CanvasNodeType = "text" | "image";
 export type CanvasNodeStatus = "idle" | "running" | "success" | "error";
+export type CanvasEdgeOrigin = "manual" | "automatic";
+
+export interface CanvasViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export const DEFAULT_CANVAS_VIEWPORT: CanvasViewport = {x: 0, y: 0, zoom: 0.35};
 
 export interface CanvasImageAsset {
   id: string;
@@ -39,14 +48,54 @@ export interface CanvasNodeDefaults {
   model: string;
 }
 
+export interface CanvasEdgeData {
+  origin: CanvasEdgeOrigin;
+}
+
+export interface CanvasImageAssetSnapshot {
+  id: string;
+  blob: Blob;
+  mime: string;
+  name: string;
+}
+
+export interface CanvasNodeSnapshotData extends Omit<CanvasNodeData, "references" | "outputs"> {
+  references: CanvasImageAssetSnapshot[];
+  outputs: CanvasImageAssetSnapshot[];
+}
+
+export interface CanvasNodeSnapshot {
+  id: string;
+  type: CanvasNodeType;
+  position: {x: number; y: number};
+  data: CanvasNodeSnapshotData;
+}
+
+export interface CanvasEdgeSnapshot {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  origin: CanvasEdgeOrigin;
+}
+
+export interface CanvasSnapshot {
+  version: 1;
+  nodes: CanvasNodeSnapshot[];
+  edges: CanvasEdgeSnapshot[];
+}
+
 export type CanvasNode = FlowNode<CanvasNodeData, any, CanvasNodeType> & {
   type: CanvasNodeType;
   data: CanvasNodeData;
 };
 
+export type CanvasEdge = Edge<CanvasEdgeData>;
+
 export class CanvasGraph {
   readonly nodes: ShallowRef<CanvasNode[]> = shallowRef([]);
-  readonly edges: ShallowRef<Edge[]> = shallowRef([]);
+  readonly edges: ShallowRef<CanvasEdge[]> = shallowRef([]);
   private sequence = 0;
 
   nextId(prefix: string): string {
@@ -56,19 +105,6 @@ export class CanvasGraph {
 
   findNode(id: string): CanvasNode | undefined {
     return this.nodes.value.find((node) => node.id === id);
-  }
-
-  seed(textDefaults: CanvasNodeDefaults, imageDefaults: CanvasNodeDefaults): void {
-    if (this.nodes.value.length > 0) return;
-    const textNode = this.createNode("text", 80, 150, {...textDefaults, title: "提示词"});
-    const imageNode = this.createNode("image", 470, 120, {...imageDefaults, title: "图像生成"});
-    this.nodes.value = [textNode, imageNode];
-    this.edges.value = [{
-      id: this.nextId("edge"),
-      source: textNode.id,
-      target: imageNode.id,
-      animated: true,
-    }];
   }
 
   add(type: CanvasNodeType, defaults: CanvasNodeDefaults): void {
@@ -91,9 +127,12 @@ export class CanvasGraph {
         (edge) => edge.source === connection.source && edge.target === connection.target
     )) return;
     this.edges.value = addEdge(
-        {id: this.nextId("edge"), ...connection, animated: true},
+        this.createEdge(this.nextId("edge"), connection.source, connection.target, "manual", {
+          sourceHandle: connection.sourceHandle,
+          targetHandle: connection.targetHandle,
+        }),
         [...this.edges.value]
-    ) as Edge[];
+    ) as CanvasEdge[];
   }
 
   replaceNodes(nodes: FlowNode[]): void {
@@ -101,7 +140,14 @@ export class CanvasGraph {
   }
 
   replaceEdges(edges: Edge[]): void {
-    this.edges.value = edges;
+    this.edges.value = edges as CanvasEdge[];
+  }
+
+  removeManualEdge(id: string): boolean {
+    const edge = this.edges.value.find((item) => item.id === id);
+    if (!edge || edge.data?.origin !== "manual") return false;
+    this.edges.value = this.edges.value.filter((item) => item.id !== id);
+    return true;
   }
 
   deleteNode(id: string): string[] {
@@ -196,7 +242,7 @@ export class CanvasGraph {
     });
   }
 
-  addGeneratedOutputs(parentId: string, blobs: Blob[]): void {
+  addGeneratedOutputs(parentId: string, blobs: Blob[], prompt: string): void {
     this.removeGeneratedChildren(parentId);
     const source = this.findNode(parentId);
     if (!source) return;
@@ -215,18 +261,19 @@ export class CanvasGraph {
         readOnly: true,
         connectionId: source.data.connectionId,
         model: source.data.model,
+        prompt,
         generatedFrom: parentId,
       });
     });
     this.nodes.value = [...this.nodes.value, ...outputNodes];
     this.edges.value = [
       ...this.edges.value,
-      ...outputNodes.map((output) => ({
-        id: this.nextId("edge"),
-        source: parentId,
-        target: output.id,
-        animated: true,
-      })),
+      ...outputNodes.map((output) => this.createEdge(
+          this.nextId("edge"),
+          parentId,
+          output.id,
+          "automatic"
+      )),
     ];
   }
 
@@ -251,13 +298,59 @@ export class CanvasGraph {
     this.nodes.value = [...this.nodes.value, output];
     this.edges.value = [
       ...this.edges.value,
-      {
-        id: this.nextId("edge"),
-        source: parentId,
-        target: output.id,
-        animated: true,
-      },
+      this.createEdge(this.nextId("edge"), parentId, output.id, "automatic"),
     ];
+  }
+
+  snapshot(): CanvasSnapshot {
+    return {
+      version: 1,
+      nodes: this.nodes.value.map((node) => ({
+        id: node.id,
+        type: node.type,
+        position: {x: node.position.x, y: node.position.y},
+        data: {
+          ...node.data,
+          status: node.data.status === "running" ? "idle" : node.data.status,
+          references: node.data.references.map(snapshotAsset),
+          outputs: node.data.outputs.map(snapshotAsset),
+        },
+      })),
+      edges: this.edges.value.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: edge.targetHandle,
+        origin: edge.data?.origin === "automatic" ? "automatic" : "manual",
+      })),
+    };
+  }
+
+  load(snapshot: CanvasSnapshot): void {
+    this.clear();
+    this.nodes.value = snapshot.nodes.map((storedNode) => {
+      const node = this.createNode(
+          storedNode.type,
+          storedNode.position.x,
+          storedNode.position.y,
+          {
+            ...storedNode.data,
+            status: storedNode.data.status === "running" ? "idle" : storedNode.data.status,
+            references: storedNode.data.references.map(restoreAsset),
+            outputs: storedNode.data.outputs.map(restoreAsset),
+          }
+      );
+      node.id = storedNode.id;
+      return node;
+    });
+    this.edges.value = snapshot.edges.map((edge) => this.createEdge(
+        edge.id,
+        edge.source,
+        edge.target,
+        edge.origin,
+        {sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle}
+    ));
   }
 
   clear(): void {
@@ -313,6 +406,41 @@ export class CanvasGraph {
       URL.revokeObjectURL(asset.url);
     }
   }
+
+  private createEdge(
+      id: string,
+      source: string,
+      target: string,
+      origin: CanvasEdgeOrigin,
+      handles: Pick<CanvasEdge, "sourceHandle" | "targetHandle"> = {}
+  ): CanvasEdge {
+    return {
+      id,
+      source,
+      target,
+      ...handles,
+      animated: origin === "automatic",
+      interactionWidth: 24,
+      class: `canvas-edge-${origin}`,
+      data: {origin},
+    };
+  }
+}
+
+function snapshotAsset(asset: CanvasImageAsset): CanvasImageAssetSnapshot {
+  return {
+    id: asset.id,
+    blob: asset.blob,
+    mime: asset.mime,
+    name: asset.name,
+  };
+}
+
+function restoreAsset(asset: CanvasImageAssetSnapshot): CanvasImageAsset {
+  return {
+    ...asset,
+    url: URL.createObjectURL(asset.blob),
+  };
 }
 
 function normalizeMime(mime: string | null | undefined): string {
