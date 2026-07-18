@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {IconDelete, IconPlus} from "@arco-design/web-vue/es/icon";
 
-defineProps<{app: any}>();
+defineProps<{ app: any }>();
 </script>
 
 <template>
@@ -24,7 +24,12 @@ defineProps<{app: any}>();
             <small v-else>{{ provider.models.length }} 个模型</small>
           </a-button>
         </a-scrollbar>
-        <a-button type="outline" class="provider-add-button" @click="app.addProviderDraft"><template #icon><IconPlus/></template>添加提供商</a-button>
+        <a-button type="outline" class="provider-add-button" @click="app.addProviderDraft">
+          <template #icon>
+            <IconPlus/>
+          </template>
+          添加提供商
+        </a-button>
       </aside>
 
       <a-scrollbar
@@ -34,6 +39,18 @@ defineProps<{app: any}>();
           :disable-horizontal="true"
       >
         <form class="provider-editor" @submit.prevent="app.saveConnectionDraft">
+          <div class="provider-detail-alert">
+            <a-alert :show-icon="false">
+              推荐使用
+              <a-link href="https://api.777358.xyz/register?aff=S9FCB8HJ6EA6" target="_blank">蓝顷AI</a-link>
+              <template #action>
+                <a-link href="https://api.777358.xyz/register?aff=S9FCB8HJ6EA6" target="_blank">
+                  <a-button>前往注册</a-button>
+                </a-link>
+              </template>
+            </a-alert>
+          </div>
+
           <div class="provider-detail-header">
             <h3>{{ app.providerDraftIsNew ? '添加提供商' : '提供商信息' }}</h3>
             <a-button
@@ -42,7 +59,12 @@ defineProps<{app: any}>();
                 class="danger-action"
                 :disabled="app.connectionProfiles.length <= 1 || app.hasUnsavedProviderChanges"
                 @click="app.removeConnection(app.selectedProvider)"
-            ><template #icon><IconDelete/></template>删除</a-button>
+            >
+              <template #icon>
+                <IconDelete/>
+              </template>
+              删除
+            </a-button>
           </div>
 
           <div class="provider-editor-fields">
@@ -86,11 +108,17 @@ defineProps<{app: any}>();
                 :disabled="app.providerDraftIsNew"
                 :title="app.providerDraftIsNew ? '请先保存提供商' : '添加模型'"
                 @click="app.openModelModal(app.selectedProvider.id)"
-            ><template #icon><IconPlus/></template>添加模型</a-button>
+            >
+              <template #icon>
+                <IconPlus/>
+              </template>
+              添加模型
+            </a-button>
           </div>
 
           <div v-if="app.selectedProvider.models.length" class="provider-model-list">
-            <article v-for="providerModel in app.selectedProvider.models" :key="providerModel.id" class="provider-model-row">
+            <article v-for="providerModel in app.selectedProvider.models" :key="providerModel.id"
+                     class="provider-model-row">
               <div class="provider-model-main">
                 <strong>{{ app.modelDisplayName(providerModel) }}</strong>
                 <code>{{ providerModel.id }}</code>
@@ -101,8 +129,12 @@ defineProps<{app: any}>();
                 </div>
               </div>
               <div class="provider-model-actions">
-                <a-button class="secondary-action" @click="app.openModelModal(app.selectedProvider.id, providerModel)">编辑</a-button>
-                <a-button status="danger" class="danger-action" @click="app.removeProviderModel(app.selectedProvider.id, providerModel.id)">删除</a-button>
+                <a-button class="secondary-action" @click="app.openModelModal(app.selectedProvider.id, providerModel)">
+                  编辑
+                </a-button>
+                <a-button status="danger" class="danger-action"
+                          @click="app.removeProviderModel(app.selectedProvider.id, providerModel.id)">删除
+                </a-button>
               </div>
             </article>
           </div>
