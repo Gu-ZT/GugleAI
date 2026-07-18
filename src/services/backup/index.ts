@@ -22,6 +22,10 @@ const BACKUP_FORMAT_VERSION = 1;
 
 export type BackupKind = "manual" | "automatic";
 
+export function backupArchiveName(kind: BackupKind, createdAt: number): string {
+  return `${kind === "automatic" ? "gugle-ai-auto" : "gugle-ai-manual"}-${formatBackupTimestamp(createdAt)}.zip`;
+}
+
 export interface BackupMetadata {
   id: string;
   name: string;
@@ -169,7 +173,7 @@ export async function putBackup(
   const createdAt = Date.now();
   const backup: StoredBackup = {
     id: globalThis.crypto?.randomUUID?.() ?? `backup-${createdAt}-${Math.random().toString(36).slice(2)}`,
-    name: `${kind === "automatic" ? "gugle-ai-auto" : "gugle-ai-manual"}-${formatBackupTimestamp(createdAt)}.zip`,
+    name: backupArchiveName(kind, createdAt),
     kind,
     createdAt,
     size: blob.size,

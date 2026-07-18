@@ -3,6 +3,7 @@ import {save} from "@tauri-apps/plugin-dialog";
 import {invoke} from "@tauri-apps/api/core";
 import {arrayBufferToBase64} from "../../services/transport";
 import {
+  backupArchiveName,
   createBackupArchive,
   deleteBackup as deleteStoredBackup,
   getBackup,
@@ -32,12 +33,16 @@ export function useBackup(options: BackupOptions) {
   const autoBackupIntervalMinutes = ref(1440);
   const automaticBackupRetention = ref(5);
   const webdavEnabled = ref(false);
+  const webdavBackupIntervalMinutes = ref(1440);
+  const webdavAutomaticBackupRetention = ref(5);
   const webdavUrl = ref("");
   const webdavPath = ref("gugle-ai-backups");
   const webdavUsername = ref("");
   const webdavPassword = ref("");
   const webdavBackups = ref<string[]>([]);
   const webdavLoading = ref(false);
+  const webdavTesting = ref(false);
+  const webdavTestStatus = ref<"idle" | "success" | "error">("idle");
   let autoBackupTimer: number | null = null;
 
   restoreSettings();
@@ -47,6 +52,8 @@ export function useBackup(options: BackupOptions) {
         autoBackupIntervalMinutes,
         automaticBackupRetention,
         webdavEnabled,
+        webdavBackupIntervalMinutes,
+        webdavAutomaticBackupRetention,
         webdavUrl,
         webdavPath,
         webdavUsername,
@@ -59,6 +66,20 @@ export function useBackup(options: BackupOptions) {
     void pruneAutomaticBackups(value).then(refreshBackups).catch((reason) => {
       reportBackupError("清理自动备份", reason);
     });
+  });
+  watch(webdavAutomaticBackupRetention, () => {
+    if (!webdavConfigured.value || webdavLoading.value) return;
+    void listWebdavBackupNames()
+        .then((names) => {
+          webdavBackups.value = names;
+          return pruneWebdavAutomaticBackups(names);
+        })
+        .catch((reason) => {
+          reportBackupError("清理 WebDAV 自动备份", reason);
+        });
+  });
+  watch([webdavUrl, webdavPath, webdavUsername, webdavPassword], () => {
+    webdavTestStatus.value = "idle";
   });
 
   const latestBackup = computed(() => backups.value[0] ?? null);
@@ -81,19 +102,9 @@ export function useBackup(options: BackupOptions) {
     backupStatus.value = "";
     try {
       const archive = await createBackupArchive();
-      const metadata = await putBackup(archive, kind, automaticBackupRetention.value);
+      await putBackup(archive, kind, automaticBackupRetention.value);
       await refreshBackups();
-      if (webdavEnabled.value && webdavConfigured.value) {
-        try {
-          await uploadBackupArchive(metadata, archive);
-          backupStatus.value = `${kind === "automatic" ? "自动" : "手动"}备份已创建并上传到 WebDAV`;
-        } catch (reason) {
-          backupStatus.value = `${kind === "automatic" ? "自动" : "手动"}备份已创建，但 WebDAV 上传失败`;
-          reportBackupError("上传 WebDAV 备份", reason, false);
-        }
-      } else {
-        backupStatus.value = `${kind === "automatic" ? "自动" : "手动"}备份已创建`;
-      }
+      backupStatus.value = `${kind === "automatic" ? "自动" : "手动"}备份已创建`;
     } catch (reason) {
       reportBackupError("创建备份", reason);
     } finally {
@@ -160,18 +171,23 @@ export function useBackup(options: BackupOptions) {
 
   async function testWebdav() {
     if (!webdavConfigured.value) {
+      webdavTestStatus.value = "error";
       reportBackupError("测试 WebDAV", new Error("请先填写 WebDAV 地址和账号"));
       return;
     }
-    webdavLoading.value = true;
+    if (webdavTesting.value || webdavLoading.value) return;
+    webdavTesting.value = true;
+    webdavTestStatus.value = "idle";
     try {
       const response = await webdavRequest(webdavDirectoryUrl.value, "PROPFIND", undefined, {Depth: "0"});
       if (!response.ok && response.status !== 207) throw new Error(`WebDAV 返回 HTTP ${response.status}`);
+      webdavTestStatus.value = "success";
       backupStatus.value = "WebDAV 连接成功";
     } catch (reason) {
+      webdavTestStatus.value = "error";
       reportBackupError("测试 WebDAV", reason);
     } finally {
-      webdavLoading.value = false;
+      webdavTesting.value = false;
     }
   }
 
@@ -179,13 +195,7 @@ export function useBackup(options: BackupOptions) {
     if (!webdavConfigured.value) return;
     webdavLoading.value = true;
     try {
-      const response = await webdavRequest(webdavDirectoryUrl.value, "PROPFIND", undefined, {Depth: "1"});
-      if (!response.ok && response.status !== 207) throw new Error(`WebDAV 返回 HTTP ${response.status}`);
-      const xml = await response.text();
-      webdavBackups.value = [...xml.matchAll(/<[^>]*href[^>]*>([^<]+)<\/[^>]*href>/gi)]
-          .map((match) => decodeURIComponent(match[1]))
-          .map((value) => value.split("/").filter(Boolean).pop() ?? "")
-          .filter((name, index, names) => name.endsWith(".zip") && names.indexOf(name) === index);
+      webdavBackups.value = await listWebdavBackupNames();
     } catch (reason) {
       reportBackupError("读取 WebDAV 备份", reason);
     } finally {
@@ -197,9 +207,7 @@ export function useBackup(options: BackupOptions) {
     if (!webdavConfigured.value || !name) return;
     webdavLoading.value = true;
     try {
-      const response = await webdavRequest(webdavFileUrl(name), "GET");
-      if (!response.ok) throw new Error(`WebDAV 返回 HTTP ${response.status}`);
-      const archive = await response.blob();
+      const archive = await fetchWebdavBackup(name);
       await putBackup(archive, "manual", automaticBackupRetention.value);
       await refreshBackups();
       backupStatus.value = "WebDAV 备份已下载到本地";
@@ -210,14 +218,31 @@ export function useBackup(options: BackupOptions) {
     }
   }
 
+  async function restoreWebdavBackup(name: string) {
+    if (!webdavConfigured.value || !name || backupBusy.value || webdavLoading.value) return;
+    webdavLoading.value = true;
+    try {
+      const archive = await fetchWebdavBackup(name);
+      await importBackup(archive);
+    } catch (reason) {
+      reportBackupError("从 WebDAV 恢复", reason);
+    } finally {
+      webdavLoading.value = false;
+    }
+  }
+
   async function uploadBackup(id: string) {
     const backup = await getBackup(id);
-    if (!backup) return;
+    if (!backup || webdavLoading.value) return;
+    webdavLoading.value = true;
     try {
       await uploadBackupArchive(backup, backup.blob);
+      webdavBackups.value = await listWebdavBackupNames();
       backupStatus.value = "备份已上传到 WebDAV";
     } catch (reason) {
       reportBackupError("上传 WebDAV 备份", reason);
+    } finally {
+      webdavLoading.value = false;
     }
   }
 
@@ -229,6 +254,65 @@ export function useBackup(options: BackupOptions) {
         {"Content-Type": "application/zip"}
     );
     if (!response.ok) throw new Error(`WebDAV 返回 HTTP ${response.status}`);
+  }
+
+  async function fetchWebdavBackup(name: string): Promise<Blob> {
+    const response = await webdavRequest(webdavFileUrl(name), "GET");
+    if (!response.ok) throw new Error(`WebDAV 返回 HTTP ${response.status}`);
+    return response.blob();
+  }
+
+  async function listWebdavBackupNames(): Promise<string[]> {
+    const response = await webdavRequest(webdavDirectoryUrl.value, "PROPFIND", undefined, {Depth: "1"});
+    if (!response.ok && response.status !== 207) throw new Error(`WebDAV 返回 HTTP ${response.status}`);
+    const xml = await response.text();
+    const document = new DOMParser().parseFromString(xml, "application/xml");
+    if (document.querySelector("parsererror")) throw new Error("WebDAV 返回了无效的 XML");
+    return [...document.getElementsByTagNameNS("*", "href")]
+        .map((element) => decodeWebdavHref(element.textContent ?? ""))
+        .map((value) => value.split("/").filter(Boolean).pop() ?? "")
+        .filter((name, index, names) => name.endsWith(".zip") && names.indexOf(name) === index)
+        .sort((left, right) => (webdavBackupTimestamp(right) ?? 0) - (webdavBackupTimestamp(left) ?? 0));
+  }
+
+  async function pruneWebdavAutomaticBackups(names = webdavBackups.value) {
+    const keep = finiteRange(webdavAutomaticBackupRetention.value, 5, 1, 100);
+    const automatic = names
+        .filter((name) => webdavAutomaticBackupTimestamp(name) !== null)
+        .sort((left, right) => webdavAutomaticBackupTimestamp(right)! - webdavAutomaticBackupTimestamp(left)!);
+    for (const name of automatic.slice(keep)) {
+      const response = await webdavRequest(webdavFileUrl(name), "DELETE");
+      if (!response.ok && response.status !== 404) {
+        throw new Error(`删除远程备份 ${name} 时 WebDAV 返回 HTTP ${response.status}`);
+      }
+    }
+    if (automatic.length > keep) webdavBackups.value = await listWebdavBackupNames();
+  }
+
+  async function createWebdavAutomaticBackup() {
+    if (backupBusy.value || webdavLoading.value || !webdavConfigured.value) return;
+    backupBusy.value = true;
+    webdavLoading.value = true;
+    try {
+      const createdAt = Date.now();
+      const archive = await createBackupArchive();
+      const metadata: BackupMetadata = {
+        id: `webdav-${createdAt}`,
+        name: backupArchiveName("automatic", createdAt),
+        kind: "automatic",
+        createdAt,
+        size: archive.size,
+      };
+      await uploadBackupArchive(metadata, archive);
+      webdavBackups.value = await listWebdavBackupNames();
+      await pruneWebdavAutomaticBackups(webdavBackups.value);
+      backupStatus.value = "WebDAV 自动备份已创建";
+    } catch (reason) {
+      reportBackupError("创建 WebDAV 自动备份", reason);
+    } finally {
+      backupBusy.value = false;
+      webdavLoading.value = false;
+    }
   }
 
   async function webdavRequest(
@@ -247,9 +331,26 @@ export function useBackup(options: BackupOptions) {
   async function checkAutomaticBackup() {
     if (!autoBackupEnabled.value || backupBusy.value) return;
     await refreshBackups();
-    const latest = backups.value[0];
+    const latest = latestBackup.value;
     const interval = Math.max(1, Number(autoBackupIntervalMinutes.value) || 1) * 60 * 1000;
     if (!latest || Date.now() - latest.createdAt >= interval) await createBackup("automatic");
+  }
+
+  async function checkWebdavAutomaticBackup() {
+    if (!webdavEnabled.value || !webdavConfigured.value || backupBusy.value || webdavLoading.value) return;
+    try {
+      const names = await listWebdavBackupNames();
+      webdavBackups.value = names;
+      await pruneWebdavAutomaticBackups(names);
+      const latest = names
+          .map(webdavAutomaticBackupTimestamp)
+          .filter((timestamp): timestamp is number => timestamp !== null)
+          .sort((left, right) => right - left)[0];
+      const interval = finiteRange(webdavBackupIntervalMinutes.value, 1440, 1, 525600) * 60 * 1000;
+      if (!latest || Date.now() - latest >= interval) await createWebdavAutomaticBackup();
+    } catch (reason) {
+      reportBackupError("检查 WebDAV 自动备份", reason);
+    }
   }
 
   function reportBackupError(action: string, reason: unknown, setError = true) {
@@ -265,6 +366,8 @@ export function useBackup(options: BackupOptions) {
       autoBackupIntervalMinutes.value = finiteRange(saved.autoBackupIntervalMinutes, 1440, 1, 525600);
       automaticBackupRetention.value = finiteRange(saved.automaticBackupRetention, 5, 1, 100);
       webdavEnabled.value = saved.webdavEnabled === true;
+      webdavBackupIntervalMinutes.value = finiteRange(saved.webdavBackupIntervalMinutes, 1440, 1, 525600);
+      webdavAutomaticBackupRetention.value = finiteRange(saved.webdavAutomaticBackupRetention, 5, 1, 100);
       webdavUrl.value = stringValue(saved.webdavUrl);
       webdavPath.value = stringValue(saved.webdavPath) || "gugle-ai-backups";
       webdavUsername.value = stringValue(saved.webdavUsername);
@@ -279,6 +382,8 @@ export function useBackup(options: BackupOptions) {
       autoBackupIntervalMinutes: finiteRange(autoBackupIntervalMinutes.value, 1440, 1, 525600),
       automaticBackupRetention: finiteRange(automaticBackupRetention.value, 5, 1, 100),
       webdavEnabled: webdavEnabled.value,
+      webdavBackupIntervalMinutes: finiteRange(webdavBackupIntervalMinutes.value, 1440, 1, 525600),
+      webdavAutomaticBackupRetention: finiteRange(webdavAutomaticBackupRetention.value, 5, 1, 100),
       webdavUrl: webdavUrl.value.trim(),
       webdavPath: webdavPath.value.trim(),
       webdavUsername: webdavUsername.value,
@@ -289,7 +394,10 @@ export function useBackup(options: BackupOptions) {
   onMounted(() => {
     void refreshBackups();
     void checkAutomaticBackup();
-    autoBackupTimer = window.setInterval(() => void checkAutomaticBackup(), 60 * 1000);
+    void checkWebdavAutomaticBackup();
+    autoBackupTimer = window.setInterval(() => {
+      void checkAutomaticBackup().then(checkWebdavAutomaticBackup);
+    }, 60 * 1000);
   });
   onUnmounted(() => {
     if (autoBackupTimer !== null) window.clearInterval(autoBackupTimer);
@@ -310,6 +418,8 @@ export function useBackup(options: BackupOptions) {
     autoBackupIntervalMinutes,
     automaticBackupRetention,
     webdavEnabled,
+    webdavBackupIntervalMinutes,
+    webdavAutomaticBackupRetention,
     webdavUrl,
     webdavPath,
     webdavUsername,
@@ -317,6 +427,8 @@ export function useBackup(options: BackupOptions) {
     webdavConfigured,
     webdavBackups,
     webdavLoading,
+    webdavTesting,
+    webdavTestStatus,
     refreshBackups,
     createBackup,
     deleteBackup,
@@ -325,6 +437,7 @@ export function useBackup(options: BackupOptions) {
     testWebdav,
     refreshWebdavBackups,
     downloadWebdavBackup,
+    restoreWebdavBackup,
     uploadBackup,
     formatBackupDate,
     formatBackupSize,
@@ -351,6 +464,35 @@ function finiteRange(value: unknown, fallback: number, minimum: number, maximum:
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function decodeWebdavHref(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function webdavAutomaticBackupTimestamp(name: string): number | null {
+  if (!name.startsWith("gugle-ai-auto-")) return null;
+  return webdavBackupTimestamp(name);
+}
+
+function webdavBackupTimestamp(name: string): number | null {
+  const match = name.match(/-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{3})\.zip$/i);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second, millisecond] = match;
+  const timestamp = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+      Number(millisecond)
+  ).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function formatBackupDate(timestamp: number): string {

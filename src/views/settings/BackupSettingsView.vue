@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {ref} from "vue";
+import {IconCheckCircle, IconCloseCircle} from "@arco-design/web-vue/es/icon";
 
 defineProps<{app: any}>();
 const backupInput = ref<HTMLInputElement | null>(null);
@@ -62,7 +63,7 @@ const backupInput = ref<HTMLInputElement | null>(null);
     <h3>WebDAV</h3>
     <div class="backup-form-grid">
       <label class="backup-switch-field settings-form-wide">
-        <span>启用 WebDAV 同步</span>
+        <span>启用 WebDAV 自动备份</span>
         <a-switch v-model="app.webdavEnabled" />
       </label>
       <label class="settings-form-wide">
@@ -82,14 +83,39 @@ const backupInput = ref<HTMLInputElement | null>(null);
         <a-input-password v-model="app.webdavPassword" />
       </label>
     </div>
+    <div class="backup-form-grid backup-auto-grid backup-webdav-policy">
+      <label>
+        <span>WebDAV 备份间隔（分钟）</span>
+        <a-input-number v-model="app.webdavBackupIntervalMinutes" :min="1" :max="525600" />
+      </label>
+      <label>
+        <span>保留 WebDAV 自动备份数量</span>
+        <a-input-number v-model="app.webdavAutomaticBackupRetention" :min="1" :max="100" />
+      </label>
+    </div>
+    <p class="backup-field-help">WebDAV 自动备份按最近一次远程自动备份的创建时间计算间隔，远程保留数量不影响手动上传的备份。</p>
     <div class="backup-webdav-actions">
-      <a-button :loading="app.webdavLoading" @click="app.testWebdav">测试连接</a-button>
+      <a-button
+          :loading="app.webdavTesting"
+          :status="app.webdavTestStatus === 'success' ? 'success' : app.webdavTestStatus === 'error' ? 'danger' : 'normal'"
+          class="webdav-test-button"
+          @click="app.testWebdav"
+      >
+        <template v-if="!app.webdavTesting && app.webdavTestStatus !== 'idle'" #icon>
+          <IconCheckCircle v-if="app.webdavTestStatus === 'success'"/>
+          <IconCloseCircle v-else/>
+        </template>
+        {{ app.webdavTestStatus === 'success' ? '连接成功' : app.webdavTestStatus === 'error' ? '连接失败' : '测试连接' }}
+      </a-button>
       <a-button :loading="app.webdavLoading" @click="app.refreshWebdavBackups">刷新远程备份</a-button>
     </div>
     <a-scrollbar v-if="app.webdavBackups.length" class="backup-list-scroll backup-remote-list" :disable-horizontal="true">
       <div v-for="name in app.webdavBackups" :key="name" class="backup-row">
         <div class="backup-row-main"><strong>{{ name }}</strong><span>WebDAV</span></div>
-        <a-button size="small" @click="app.downloadWebdavBackup(name)">下载到本地</a-button>
+        <div class="backup-row-actions">
+          <a-button size="small" :disabled="app.webdavLoading || app.backupBusy" @click="app.downloadWebdavBackup(name)">下载到本地</a-button>
+          <a-button type="primary" size="small" :disabled="app.webdavLoading || app.backupBusy" @click="app.restoreWebdavBackup(name)">从 WebDAV 恢复</a-button>
+        </div>
       </div>
     </a-scrollbar>
   </div>
