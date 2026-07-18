@@ -8,59 +8,83 @@ English | [简体中文](README.md)
 
 </div>
 
-GugleAI is a desktop AI workspace built with Tauri 2, Vue 3, and TypeScript. It works with OpenAI-compatible image and chat APIs, including compatible third-party relay services.
+GugleAI is a desktop AI workspace built with Tauri 2, Vue 3, and TypeScript. It works with OpenAI-compatible image and
+chat APIs, including compatible third-party relay services.
 
 ## Screenshots
 
-| Image Generation | Text Chat |
-| --- | --- |
-| ![GugleAI Image Generation workspace](docs/image.png) | ![GugleAI Text Chat workspace](docs/chat.png) |
-| Infinite Canvas | Model Settings |
-| ![GugleAI Infinite Canvas workspace](docs/canvas.png) | ![GugleAI Model Settings](docs/model-setting.png) |
-| Agent Settings | Backup Settings |
-| ![GugleAI Agent Settings](docs/agent-setting.png) | ![GugleAI Backup and WebDAV settings](docs/backup-setting.png) |
+|                   Image Generation                    |                           Text Chat                            |
+|:-----------------------------------------------------:|:--------------------------------------------------------------:|
+| ![GugleAI Image Generation workspace](docs/image.png) |         ![GugleAI Text Chat workspace](docs/chat.png)          |
+|                  **Infinite Canvas**                  |                       **Model Settings**                       |
+| ![GugleAI Infinite Canvas workspace](docs/canvas.png) |       ![GugleAI Model Settings](docs/model-setting.png)        |
+|                  **Agent Settings**                   |                      **Backup Settings**                       |
+|   ![GugleAI Agent Settings](docs/agent-setting.png)   | ![GugleAI Backup and WebDAV settings](docs/backup-setting.png) |
 
 ## Features
 
 ### Three workspaces
 
-- **Image Generation**: generate images from prompts with model, size, count, and custom dimensions; add reference images with a file picker, drag and drop, or clipboard paste.
-- **Text Chat**: use `/chat/completions` for persistent multi-conversation chats with create, rename, delete, clear, and message-copy actions; assistant messages show the actual model, and the first exchange can generate a title asynchronously.
-- **Infinite Canvas**: create or open documents from a canvas library, connect text and image nodes, and pass upstream text and references into generation tasks; nodes, images, edges, and viewports are saved per canvas.
+- **Image Generation**: generate images from prompts with model, size, count, and custom dimensions; add reference
+  images with a file picker, drag and drop, or clipboard paste.
+- **Text Chat**: use `/chat/completions` for persistent multi-conversation chats with create, rename, delete, clear, and
+  message-copy actions; assistant messages show the actual model, and the first exchange can generate a title
+  asynchronously.
+- **Infinite Canvas**: create or open documents from a canvas library, connect text and image nodes, and pass upstream
+  text and references into generation tasks; nodes, images, edges, and viewports are saved per canvas.
 
 ### Providers, models, and settings
 
-- Maintain multiple providers in Model Settings. Each provider has its own name, API endpoint, API key, and model list; leaving an unsaved provider prompts you to save, discard, or keep editing.
-- Models support an ID, display name, description, image-model flag, and context length. Image Generation, Chat, conversation titles, and Canvas nodes select models grouped by provider.
-- Press `Ctrl+V` in Image Generation to import a connection directly from newapi channel JSON (`_type: "newapi_channel_conn"`) or the `base_url` in a Codex CLI `config.toml`.
-- Settings contains Model, Agent, General, Logs, and Backup pages. General Settings provides a user name, Light/Dark/Follow System themes, a title-generation model, and startup update checks.
-- Agent Settings lets you edit the default assistant, add or remove chat agents, and change the Infinite Canvas prompt-generation rule. System prompts support `{{date}}`, `{{time}}`, `{{datetime}}`, `{{system}}`, `{{arch}}`, `{{language}}`, `{{model_name}}`, and `{{username}}` variables.
+- Maintain multiple providers in Model Settings. Each provider has its own name, API endpoint, API key, and model list;
+  leaving an unsaved provider prompts you to save, discard, or keep editing.
+- Models support an ID, display name, description, image-model flag, and context length. Image Generation, Chat,
+  conversation titles, and Canvas nodes select models grouped by provider.
+- Press `Ctrl+V` in Image Generation to import a connection directly from newapi channel JSON
+  (`_type: "newapi_channel_conn"`) or the `base_url` in a Codex CLI `config.toml`.
+- Settings contains Model, Agent, General, Logs, and Backup pages. General Settings provides a user name,
+  Light/Dark/Follow System themes, a title-generation model, and startup update checks.
+- Agent Settings lets you edit the default assistant, add or remove chat agents, and change the Infinite Canvas
+  prompt-generation rule. System prompts support `{{date}}`, `{{time}}`, `{{datetime}}`, `{{system}}`, `{{arch}}`,
+  `{{language}}`, `{{model_name}}`, and `{{username}}` variables.
 
 ### Generation control and results
 
-- Advanced Settings provides Auto, Images API, and Chat API modes. In Auto mode, requests with multiple reference images use Chat API to work with relays whose `edits` endpoint only accepts one image.
+- Advanced Settings provides Auto, Images API, and Chat API modes. In Auto mode, requests with multiple reference images
+  use Chat API to work with relays whose `edits` endpoint only accepts one image.
 - Stop a generation task at any time; the app cancels the request, retry delay, and result download.
-- Preview history stores generated images and prompts and restores them after restart. Results can be enlarged, copied as an image or prompt, reused as a reference, saved, deleted, or cleared.
-- Result parsing supports `b64_json`, absolute or relative image URLs, image URLs in Chat messages, and embedded base64 data.
-- Automatic retries are disabled by default and apply only to generation requests. The default status code is `[504]` with up to 5 retries; the Advanced Settings page lets you select or add status codes from 100–599.
+- Preview history stores generated images and prompts and restores them after restart. Results can be enlarged, copied
+  as an image or prompt, reused as a reference, saved, deleted, or cleared.
+- Result parsing supports `b64_json`, absolute or relative image URLs, image URLs in Chat messages, and embedded base64
+  data.
+- Automatic retries are disabled by default and apply only to generation requests. The default status code is `[504]`
+  with up to 5 retries; the Advanced Settings page lets you select or add status codes from 100–599.
 
 ### Infinite Canvas details
 
 - The canvas library supports creating, opening, renaming, and confirmed deletion of documents.
-- Text nodes can generate text children. Image nodes can add or replace references and choose auto, preset, or custom dimensions per generation node; generation reads only directly connected upstream nodes.
-- Manual and automatic edges use different styles, and manual edges can be disconnected with a double-click. Node images provide actions to copy prompts or images and save files.
+- Text nodes can generate text children. Image nodes can add or replace references and choose auto, preset, or custom
+  dimensions per generation node; generation reads only directly connected upstream nodes.
+- Manual and automatic edges use different styles, and manual edges can be disconnected with a double-click. Node images
+  provide actions to copy prompts or images and save files.
 - New canvases open at 60% zoom, and the current viewport and document contents are continuously persisted.
 
 ### Logs, backups, and proxy support
 
-- Diagnostic logs record task IDs, stages, durations, request-body sizes, proxy state, and redacted error details. Logs rotate at application startup or when the active file exceeds 100 KB.
-- Local backups package settings, agents, conversations, preview history, and canvas images into ZIP files. Manual backups, scheduled backups, import, export, and deletion are supported; importing replaces the corresponding local data and reloads the app.
-- WebDAV supports connection tests, uploading local backups, listing or downloading remote backups, and restoring directly from a remote ZIP. Local and WebDAV automatic backups have independent enablement, interval, and retention settings, and each policy prunes only its own automatic backups.
-- All network requests pass through the Tauri HTTP wrapper and use the system proxy. Logs hide API keys, Authorization headers, passwords, tokens, query parameters, and long base64 data.
+- Diagnostic logs record task IDs, stages, durations, request-body sizes, proxy state, and redacted error details. Logs
+  rotate at application startup or when the active file exceeds 100 KB.
+- Local backups package settings, agents, conversations, preview history, and canvas images into ZIP files. Manual
+  backups, scheduled backups, import, export, and deletion are supported; importing replaces the corresponding local
+  data and reloads the app.
+- WebDAV supports connection tests, uploading local backups, listing or downloading remote backups, and restoring
+  directly from a remote ZIP. Local and WebDAV automatic backups have independent enablement, interval, and retention
+  settings, and each policy prunes only its own automatic backups.
+- All network requests pass through the Tauri HTTP wrapper and use the system proxy. Logs hide API keys, Authorization
+  headers, passwords, tokens, query parameters, and long base64 data.
 
 ## API compatibility
 
-- If a provider endpoint has no version path, the app appends `/v1`; existing paths such as `/v1` and `/v2`, including third-party relay paths, are preserved.
+- If a provider endpoint has no version path, the app appends `/v1`; existing paths such as `/v1` and `/v2`, including
+  third-party relay paths, are preserved.
 - Images mode without references calls `/images/generations`.
 - Images mode with references calls `/images/edits`.
 - Chat mode calls `/chat/completions` and extracts results from text, image URLs, or embedded base64 data.
@@ -75,7 +99,8 @@ GugleAI is a desktop AI workspace built with Tauri 2, Vue 3, and TypeScript. It 
 - [pnpm](https://pnpm.io/)
 - [Rust](https://www.rust-lang.org/)
 
-The project uses `pnpm` for frontend dependencies and Cargo for Rust dependencies. Do not mix npm, Yarn, or other lock files.
+The project uses `pnpm` for frontend dependencies and Cargo for Rust dependencies. Do not mix npm, Yarn, or other lock
+files.
 
 ### Install and run
 
@@ -93,15 +118,19 @@ pnpm build
 pnpm tauri build
 ```
 
-On first launch, open **Settings → Model Settings**, add a provider with its endpoint and API key, then add or edit its models.
+On first launch, open **Settings → Model Settings**, add a provider with its endpoint and API key, then add or edit its
+models.
 
 ## Typical workflow
 
 1. Add a provider and save its model list. A bare domain is accepted; the app adds the API version path when needed.
 2. Select a provider-grouped model in Image Generation, Chat, or Infinite Canvas.
-3. Expand Advanced Settings to choose the image API mode and retry rules. Use `Ctrl+Enter` to submit an image prompt or chat message.
-4. Manage conversations and agents in Chat; in Infinite Canvas, create nodes, connect upstream content, and generate text or images independently.
-5. Use the preview context menu to copy, reuse, save, or delete results. Export a ZIP or use WebDAV from Backup Settings when moving data to another installation.
+3. Expand Advanced Settings to choose the image API mode and retry rules. Use `Ctrl+Enter` to submit an image prompt or
+   chat message.
+4. Manage conversations and agents in Chat; in Infinite Canvas, create nodes, connect upstream content, and generate
+   text or images independently.
+5. Use the preview context menu to copy, reuse, save, or delete results. Export a ZIP or use WebDAV from Backup Settings
+   when moving data to another installation.
 
 ## Project structure
 
@@ -126,17 +155,22 @@ src-tauri/
 └─ tauri.conf.json           # App and build configuration
 ```
 
-`src/App.vue` contains the application shell, router outlet, and global overlays. Page components live in `src/views/`, and all network requests go through `src/composables/fetch/index.ts`.
+`src/App.vue` contains the application shell, router outlet, and global overlays. Page components live in `src/views/`,
+and all network requests go through `src/composables/fetch/index.ts`.
 
 ## Data and security
 
-- Providers, models, generation options, theme, agents, and conversations are stored locally. Preview history, canvas documents, and backups use IndexedDB.
-- Backup archives may contain API keys, WebDAV usernames, and passwords. Treat backup files as credentials and protect them accordingly.
-- Diagnostic logs do not record complete Authorization headers, API keys, or long base64 payloads; still review service addresses and error details before sharing logs.
+- Providers, models, generation options, theme, agents, and conversations are stored locally. Preview history, canvas
+  documents, and backups use IndexedDB.
+- Backup archives may contain API keys, WebDAV usernames, and passwords. Treat backup files as credentials and protect
+  them accordingly.
+- Diagnostic logs do not record complete Authorization headers, API keys, or long base64 payloads; still review service
+  addresses and error details before sharing logs.
 
 ## Download
 
-Download installers from the [Releases](../../releases) page. Release builds support Windows (x86, x86_64, arm64), Linux (x86_64, arm64), and macOS (Intel, Apple Silicon).
+Download installers from the [Releases](../../releases) page. Release builds support Windows (x86, x86_64, arm64), Linux
+(x86_64, arm64), and macOS (Intel, Apple Silicon).
 
 ## License
 

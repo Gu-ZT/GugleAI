@@ -12,12 +12,12 @@ GugleAI 是一个基于 Tauri 2、Vue 3 和 TypeScript 的桌面 AI 工作台，
 
 ## 界面预览
 
-| 图像生成 | 文字聊天 |
-| --- | --- |
-| ![GugleAI 图像生成工作区](docs/image.png) | ![GugleAI 文字聊天工作区](docs/chat.png) |
-| 无尽画布 | 模型设置 |
-| ![GugleAI 无尽画布工作区](docs/canvas.png) | ![GugleAI 模型设置](docs/model-setting.png) |
-| 智能体设置 | 备份设置 |
+|                   图像生成                    |                        文字聊天                        |
+|:---------------------------------------------:|:------------------------------------------------------:|
+|   ![GugleAI 图像生成工作区](docs/image.png)   |        ![GugleAI 文字聊天工作区](docs/chat.png)        |
+|                 **无尽画布**                  |                      **模型设置**                      |
+|  ![GugleAI 无尽画布工作区](docs/canvas.png)   |      ![GugleAI 模型设置](docs/model-setting.png)       |
+|                **智能体设置**                 |                      **备份设置**                      |
 | ![GugleAI 智能体设置](docs/agent-setting.png) | ![GugleAI 备份与 WebDAV 设置](docs/backup-setting.png) |
 
 ## 功能
@@ -32,17 +32,21 @@ GugleAI 是一个基于 Tauri 2、Vue 3 和 TypeScript 的桌面 AI 工作台，
 
 - 在模型设置中维护多个提供商，每个提供商拥有独立的名称、API 地址、API Key 和模型列表；切换未保存的提供商信息时会提示保存、放弃或继续编辑。
 - 模型支持 ID、显示名称、介绍、生图模型标记和上下文长度。图像生成、聊天、对话标题和画布节点均按提供商分组选择模型。
-- 在图像生成页面按 `Ctrl+V` 可以直接导入连接配置，支持 newapi 渠道 JSON（`_type: "newapi_channel_conn"`）和 Codex CLI `config.toml` 中的 `base_url`。
+- 在图像生成页面按 `Ctrl+V` 可以直接导入连接配置，支持 newapi 渠道 JSON（`_type: "newapi_channel_conn"`）和 Codex CLI
+  `config.toml` 中的 `base_url`。
 - 设置页包含模型、智能体、通用、日志和备份五个子页面。通用设置支持用户名、浅色/深色/跟随系统主题、对话标题模型和启动时自动检查更新。
-- 智能体设置可以编辑默认助手、添加或删除聊天智能体，并修改无尽画布的提示词生成规则。系统提示词支持 `{{date}}`、`{{time}}`、`{{datetime}}`、`{{system}}`、`{{arch}}`、`{{language}}`、`{{model_name}}` 和 `{{username}}` 变量。
+- 智能体设置可以编辑默认助手、添加或删除聊天智能体，并修改无尽画布的提示词生成规则。系统提示词支持 `{{date}}`、`{{time}}`、
+  `{{datetime}}`、`{{system}}`、`{{arch}}`、`{{language}}`、`{{model_name}}` 和 `{{username}}` 变量。
 
 ### 生成控制和结果管理
 
-- 高级配置提供自动、Images 接口和 Chat 接口三种模式。自动模式下，多参考图请求自动使用 Chat 接口，以兼容只支持单图 `edits` 的服务。
+- 高级配置提供自动、Images 接口和 Chat 接口三种模式。自动模式下，多参考图请求自动使用 Chat 接口，以兼容只支持单图 `edits`
+  的服务。
 - 生成任务可以随时停止，同时取消当前请求、重试等待和结果下载。
 - 预览历史存储图片和提示词，重启后自动恢复；支持双击放大、复制图片或提示词、设为参考图、保存、删除和清空。
 - 结果解析兼容 `b64_json`、绝对或相对图片 URL、Chat 消息中的图片 URL 和内嵌 base64。
-- 自动重试默认关闭，只用于生成请求；默认重试状态码为 `[504]`，默认最多重试 5 次，也可以在高级配置中选择或添加 100–599 范围内的状态码。
+- 自动重试默认关闭，只用于生成请求；默认重试状态码为 `[504]`，默认最多重试 5 次，也可以在高级配置中选择或添加 100–599
+  范围内的状态码。
 
 ### 无尽画布细节
 
@@ -55,7 +59,8 @@ GugleAI 是一个基于 Tauri 2、Vue 3 和 TypeScript 的桌面 AI 工作台，
 
 - 诊断日志记录任务编号、阶段、耗时、请求体大小、代理状态和脱敏后的错误详情；应用启动或日志文件超过 100 KB 时自动轮转。
 - 本地备份将设置、智能体、聊天记录、预览历史和画布图片打包为 ZIP，支持手动备份、自动备份、导入、导出和删除。导入会覆盖当前对应数据并重新加载应用。
-- WebDAV 支持测试连接、上传本地备份、列出或下载远程备份，以及直接从远程 ZIP 恢复；本地与 WebDAV 自动备份分别配置启用状态、间隔和保留数量，且两端只按各自策略清理自动备份。
+- WebDAV 支持测试连接、上传本地备份、列出或下载远程备份，以及直接从远程 ZIP 恢复；本地与 WebDAV
+  自动备份分别配置启用状态、间隔和保留数量，且两端只按各自策略清理自动备份。
 - 所有网络请求经过 Tauri HTTP 封装并应用系统代理；日志会隐藏 API Key、Authorization、密码、Token、查询参数和长 base64 数据。
 
 ## API 兼容性
@@ -126,7 +131,8 @@ src-tauri/
 └─ tauri.conf.json           # 应用和构建配置
 ```
 
-`src/App.vue` 负责应用壳层、路由出口和全局弹层；具体页面位于 `src/views/`，网络请求统一经过 `src/composables/fetch/index.ts`。
+`src/App.vue` 负责应用壳层、路由出口和全局弹层；具体页面位于 `src/views/`，网络请求统一经过
+`src/composables/fetch/index.ts`。
 
 ## 数据与安全
 
@@ -136,7 +142,8 @@ src-tauri/
 
 ## 下载
 
-前往 [Releases](../../releases) 下载对应平台的安装包。发布构建支持 Windows（x86、x86_64、arm64）、Linux（x86_64、arm64）和 macOS（Intel、Apple Silicon）。
+前往 [Releases](../../releases) 下载对应平台的安装包。发布构建支持 Windows（x86、x86_64、arm64）、Linux（x86_64、arm64）和
+macOS（Intel、Apple Silicon）。
 
 ## 许可证
 
