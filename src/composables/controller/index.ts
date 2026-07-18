@@ -21,6 +21,7 @@ import {useResultHistory} from "../history";
 import {useSystemFetch} from "../fetch";
 import {useTheme} from "../theme";
 import {useUpdater} from "../updater";
+import {useBackup} from "../backup";
 
 export function useAppController() {
   const route = useRoute();
@@ -105,6 +106,11 @@ export function useAppController() {
     saveImage: images.saveImage,
   });
   const updater = useUpdater(systemFetch.fetch, logger.log, error);
+  const backup = useBackup({
+    fetch: systemFetch.fetch,
+    error,
+    errorMessage: logger.errorMessage,
+  });
   const appBusy = computed(
       () => images.loading.value || chat.chatLoading.value || canvas.canvasBusyCount.value > 0
   );
@@ -134,6 +140,7 @@ export function useAppController() {
     ...agents,
     themeMode,
     ...updater,
+    ...backup,
     ...logger,
     ...images,
     ...resultHistory,

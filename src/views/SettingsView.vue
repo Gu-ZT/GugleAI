@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {RouterLink, RouterView} from "vue-router";
-import {IconFile, IconRobot, IconRobotAdd, IconSettings} from "@arco-design/web-vue/es/icon";
+import {IconCloudDownload, IconFile, IconRobot, IconRobotAdd, IconSettings} from "@arco-design/web-vue/es/icon";
 
 defineProps<{app: any}>();
 </script>
@@ -26,6 +26,9 @@ defineProps<{app: any}>();
         </RouterLink>
         <RouterLink :to="{name: 'settings-logs'}" class="settings-subnav-link">
           <IconFile aria-hidden="true"/><span>日志</span>
+        </RouterLink>
+        <RouterLink :to="{name: 'settings-backup'}" class="settings-subnav-link">
+          <IconCloudDownload aria-hidden="true"/><span>备份</span>
         </RouterLink>
       </aside>
 

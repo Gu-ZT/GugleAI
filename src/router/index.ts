@@ -7,6 +7,7 @@ import ModelSettingsView from "../views/settings/ModelSettingsView.vue";
 import GeneralSettingsView from "../views/settings/GeneralSettingsView.vue";
 import AgentSettingsView from "../views/settings/AgentSettingsView.vue";
 import LogSettingsView from "../views/settings/LogSettingsView.vue";
+import BackupSettingsView from "../views/settings/BackupSettingsView.vue";
 
 export type WorkspaceMode = "image" | "chat" | "canvas" | "settings";
 
@@ -27,6 +28,7 @@ const routes: RouteRecordRaw[] = [
       {path: "agents", name: "settings-agents", component: AgentSettingsView},
       {path: "general", name: "settings-general", component: GeneralSettingsView},
       {path: "logs", name: "settings-logs", component: LogSettingsView},
+      {path: "backup", name: "settings-backup", component: BackupSettingsView},
     ],
   },
   {path: "/:pathMatch(.*)*", redirect: "/image"},

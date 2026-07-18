@@ -311,6 +311,130 @@
   padding: 0 0 8px;
 }
 
+.backup-settings-section {
+  width: min(860px, 100%);
+}
+
+.backup-toolbar-actions,
+.backup-webdav-actions,
+.backup-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.backup-notice,
+.backup-status,
+.backup-field-help {
+  margin: 0 0 12px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.backup-status {
+  color: rgb(var(--success-6));
+}
+
+.backup-settings-section > h3 {
+  margin: 18px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+.backup-list-scroll {
+  max-height: 300px;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.backup-list-scroll .arco-scrollbar-container {
+  min-height: 72px;
+}
+
+.backup-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.backup-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.backup-row:last-child {
+  border-bottom: 0;
+}
+
+.backup-row-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.backup-row-main strong,
+.backup-row-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-row-main strong {
+  color: var(--color-text-1);
+  font-size: 12px;
+}
+
+.backup-row-main span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-4);
+  font-size: 11px;
+}
+
+.backup-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.backup-form-grid label {
+  min-width: 0;
+}
+
+.backup-form-grid .arco-input-wrapper,
+.backup-form-grid .arco-input-number,
+.backup-form-grid .arco-input-password {
+  width: 100%;
+}
+
+.backup-switch-field {
+  display: flex;
+  min-height: 32px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.backup-webdav-actions {
+  margin-top: 12px;
+}
+
+.backup-remote-list {
+  margin-top: 12px;
+}
+
 .provider-settings-section {
   width: 100%;
   height: 100%;

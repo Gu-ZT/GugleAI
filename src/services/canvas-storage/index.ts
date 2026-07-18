@@ -88,6 +88,15 @@ export async function getCanvasDocument(id: string): Promise<StoredCanvasDocumen
   return isStoredCanvasDocument(request.result) ? request.result : null;
 }
 
+export async function loadAllCanvasDocuments(): Promise<StoredCanvasDocument[]> {
+  const database = await openDatabase();
+  const transaction = database.transaction(STORE_NAME, "readonly");
+  const completed = waitForTransaction(transaction);
+  const request = transaction.objectStore(STORE_NAME).getAll();
+  await completed;
+  return (request.result as StoredCanvasDocument[]).filter(isStoredCanvasDocument);
+}
+
 export async function putCanvasDocument(document: StoredCanvasDocument): Promise<void> {
   const database = await openDatabase();
   const transaction = database.transaction(STORE_NAME, "readwrite");
@@ -101,6 +110,16 @@ export async function deleteCanvasDocument(id: string): Promise<void> {
   const transaction = database.transaction(STORE_NAME, "readwrite");
   const completed = waitForTransaction(transaction);
   transaction.objectStore(STORE_NAME).delete(id);
+  await completed;
+}
+
+export async function replaceAllCanvasDocuments(documents: StoredCanvasDocument[]): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(STORE_NAME, "readwrite");
+  const completed = waitForTransaction(transaction);
+  const store = transaction.objectStore(STORE_NAME);
+  store.clear();
+  for (const document of documents) store.put(document);
   await completed;
 }
 

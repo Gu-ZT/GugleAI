@@ -80,3 +80,13 @@ export async function clearStoredResultImages(): Promise<void> {
   transaction.objectStore(STORE_NAME).clear();
   await completed;
 }
+
+export async function replaceStoredResultImages(images: StoredResultImage[]): Promise<void> {
+  const db = await openDatabase();
+  const transaction = db.transaction(STORE_NAME, "readwrite");
+  const completed = waitForTransaction(transaction);
+  const store = transaction.objectStore(STORE_NAME);
+  store.clear();
+  for (const image of images) store.put(image);
+  await completed;
+}
