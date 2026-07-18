@@ -17,6 +17,7 @@ const props = defineProps<{app: any}>();
 
 const canvasSelectTriggerProps = ref(createCanvasSelectTriggerProps(0.6));
 const mobileNodeMenuOpen = ref(false);
+let canvasInstance: VueFlowStore | null = null;
 
 watch(
     () => props.app.canvasViewport?.zoom,
@@ -53,7 +54,26 @@ function onCanvasViewportChange(viewport: ViewportTransform) {
 }
 
 function onCanvasInit(instance: VueFlowStore) {
+  canvasInstance = instance;
   canvasSelectTriggerProps.value = createCanvasSelectTriggerProps(instance.viewport.value.zoom);
+}
+
+function currentViewportCenter() {
+  const flowElement = canvasInstance?.vueFlowRef.value;
+  if (!canvasInstance || !flowElement) return undefined;
+  const bounds = flowElement.getBoundingClientRect();
+  return canvasInstance.screenToFlowCoordinate({
+    x: bounds.left + bounds.width / 2,
+    y: bounds.top + bounds.height / 2,
+  });
+}
+
+function addCanvasTextNode() {
+  props.app.addCanvasTextNode(currentViewportCenter());
+}
+
+function addCanvasImageNode() {
+  props.app.addCanvasImageNode(currentViewportCenter());
 }
 </script>
 
@@ -73,7 +93,11 @@ function onCanvasInit(instance: VueFlowStore) {
 
       <div class="canvas-library">
         <a-spin :loading="app.canvasLibraryLoading" class="canvas-library-loading">
-          <a-scrollbar class="canvas-library-scroll" :disable-horizontal="true">
+          <a-scrollbar
+              outer-class="canvas-library-scroll"
+              class="canvas-library-scroll-container"
+              :disable-horizontal="true"
+          >
             <div v-if="app.canvasDocuments.length" class="canvas-library-grid">
               <article
                   v-for="document in app.canvasDocuments"
@@ -116,11 +140,11 @@ function onCanvasInit(instance: VueFlowStore) {
           </div>
         </div>
         <div class="canvas-toolbar-actions canvas-desktop-actions">
-          <a-button size="small" @click="app.addCanvasTextNode">
+          <a-button size="small" @click="addCanvasTextNode">
             <template #icon><IconPlus/></template>
             <span class="canvas-toolbar-label">文字节点</span>
           </a-button>
-          <a-button size="small" @click="app.addCanvasImageNode">
+          <a-button size="small" @click="addCanvasImageNode">
             <template #icon><IconPlus/></template>
             <span class="canvas-toolbar-label">图像节点</span>
           </a-button>
@@ -141,10 +165,10 @@ function onCanvasInit(instance: VueFlowStore) {
               @click="mobileNodeMenuOpen = !mobileNodeMenuOpen"
           ><IconPlus/></a-button>
           <div v-if="mobileNodeMenuOpen" class="canvas-mobile-node-options">
-            <a-button @click="app.addCanvasTextNode(); mobileNodeMenuOpen = false">
+            <a-button @click="addCanvasTextNode(); mobileNodeMenuOpen = false">
               <template #icon><IconPlus/></template>文字节点
             </a-button>
-            <a-button @click="app.addCanvasImageNode(); mobileNodeMenuOpen = false">
+            <a-button @click="addCanvasImageNode(); mobileNodeMenuOpen = false">
               <template #icon><IconPlus/></template>图像节点
             </a-button>
             <a-button status="danger" :disabled="app.canvasNodes.length === 0" @click="app.clearCanvas(); mobileNodeMenuOpen = false">

@@ -17,6 +17,11 @@ export interface CanvasViewport {
   zoom: number;
 }
 
+export interface CanvasPoint {
+  x: number;
+  y: number;
+}
+
 export const DEFAULT_CANVAS_VIEWPORT: CanvasViewport = {x: 0, y: 0, zoom: 0.6};
 
 export interface CanvasImageAsset {
@@ -110,11 +115,14 @@ export class CanvasGraph {
     return this.nodes.value.find((node) => node.id === id);
   }
 
-  add(type: CanvasNodeType, defaults: CanvasNodeDefaults): void {
+  add(type: CanvasNodeType, defaults: CanvasNodeDefaults, center?: CanvasPoint): void {
     const index = this.nodes.value.length;
+    const width = type === "text" ? 300 : 360;
+    const x = center ? center.x - width / 2 : 80 + (index % 3) * 360;
+    const y = center ? center.y - 110 : 100 + Math.floor(index / 3) * 330;
     this.nodes.value = [
       ...this.nodes.value,
-      this.createNode(type, 80 + (index % 3) * 360, 100 + Math.floor(index / 3) * 330, defaults),
+      this.createNode(type, x, y, defaults),
     ];
   }
 

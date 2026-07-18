@@ -7,6 +7,8 @@ on:
       - "src/**"
       - "src-tauri/**"
       - "scripts/**"
+      - "CHANGES.md"
+      - "CHANGES.en.md"
       - "public/**"
       - "index.html"
       - "package.json"
@@ -253,22 +255,46 @@ jobs:
           APK: ${{ steps.apk.outputs.path }}
         run: gh release upload "$TAG" "$APK" --clobber
 
-  # 所有平台构建完成后,在 release 描述末尾生成按平台分类的下载表格
+  # 所有平台构建完成后,从中英文变更日志生成 release notes 和下载表格
   update-release-notes:
     needs: [prepare, build, android]
     if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Append download table to release notes
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes and download table
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
           REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           gh api "repos/$REPO/releases/$RELEASE_ID" > release.json
+          git fetch --force --tags
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          export PREVIOUS_TAG
           node <<'EOF'
           const fs = require("fs");
           const rel = JSON.parse(fs.readFileSync("release.json", "utf8"));
+          const tag = process.env.TAG;
+          const version = tag.replace(/^v/, "").replace(/\+build\.\d+$/, "");
+
+          function extractVersionSection(file, targetVersion) {
+            const lines = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n").split("\n");
+            const heading = `## [${targetVersion}]`;
+            const start = lines.findIndex((line) => line.startsWith(heading));
+            if (start === -1) {
+              throw new Error(`${file} does not contain a ${heading} section`);
+            }
+            const end = lines.findIndex((line, index) => index > start && line.startsWith("## ["));
+            return lines.slice(start, end === -1 ? lines.length : end).join("\n").trim();
+          }
+
+          const englishNotes = extractVersionSection("CHANGES.en.md", version);
+          const chineseNotes = extractVersionSection("CHANGES.md", version);
 
           const rules = [
             [/_x64-setup\.exe$/,      "Windows", "x86_64",                "NSIS 安装包"],
@@ -298,19 +324,20 @@ jobs:
             .sort((x, y) => x.order - y.order)
             .map((r) => `| ${r.os} | ${r.arch} | ${r.kind} | [${r.a.name}](${r.a.browser_download_url}) |`);
 
-          const marker = "## 下载";
           const table = [
-            marker, "",
+            "## 下载", "",
             "| 平台 | 架构 | 格式 | 下载 |",
             "| --- | --- | --- | --- |",
             ...rows,
           ].join("\n");
 
-          // 重跑时先移除旧表格,避免重复追加
-          let body = rel.body ?? "";
-          const idx = body.indexOf(marker);
-          if (idx !== -1) body = body.slice(0, idx).trimEnd();
-          body = (body ? body + "\n\n" : "") + table + "\n";
+          const previousTag = process.env.PREVIOUS_TAG;
+          const changelog = previousTag
+            ? `**Full Changelog**: https://github.com/${process.env.REPO}/compare/${previousTag}...${tag}`
+            : "";
+          const body = [englishNotes, chineseNotes, changelog, table]
+            .filter(Boolean)
+            .join("\n\n") + "\n";
           fs.writeFileSync("body.md", body);
           EOF
           gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -F body=@body.md

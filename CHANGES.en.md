@@ -2,6 +2,13 @@
 
 Release headings use the base semantic version; `+build.N` is a build identifier, so multiple builds of the same base version are combined.
 
+## [1.1.1] - 2026-07-18
+
+- Fixed insufficient top status-bar spacing on Android and narrow screens.
+- Fixed scrolling in the mobile Infinite Canvas library.
+- Manually added Infinite Canvas nodes are now placed at the center of the current viewport.
+- Release workflows now generate bilingual notes, a full changelog comparison link, and the download table from the changelog files.
+
 ## [1.1.0] - 2026-07-18
 
 - Added responsive layouts for narrow screens and Android, including bottom workspace navigation, hierarchical settings, a slide-out Chat conversation list, mobile Image controls, and a full-screen Infinite Canvas.

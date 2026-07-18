@@ -7,6 +7,7 @@ import {
   type CanvasImageAsset,
   type CanvasNode,
   type CanvasNodeData,
+  type CanvasPoint,
   type CanvasViewport,
 } from "../../../canvas";
 import {
@@ -336,12 +337,12 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
     options.error.value = `画布${action}失败: ${options.errorMessage(reason)}`;
   }
 
-  function addCanvasTextNode() {
-    options.graph.add("text", canvasNodeDefaults("text"));
+  function addCanvasTextNode(center?: CanvasPoint) {
+    options.graph.add("text", canvasNodeDefaults("text"), center);
   }
 
-  function addCanvasImageNode() {
-    options.graph.add("image", canvasNodeDefaults("image"));
+  function addCanvasImageNode(center?: CanvasPoint) {
+    options.graph.add("image", canvasNodeDefaults("image"), center);
   }
 
   function canvasNodeDefaults(type: "text" | "image") {

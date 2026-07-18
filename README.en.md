@@ -43,11 +43,11 @@ image and chat APIs, including compatible third-party relay services.
   (`_type: "newapi_channel_conn"`) or the `base_url` in a Codex CLI `config.toml`.
 - Settings contains Model, Agent, General, Logs, and Backup pages. General Settings provides a user name,
   Light/Dark/Follow System themes, a title-generation model, and startup update checks.
-- Narrow screens and Android use bottom workspace navigation with system safe-area handling. Settings uses category,
+- Narrow screens and Android avoid the top status bar and bottom system safe area while using bottom workspace navigation. Settings uses category,
   provider, and detail levels. Chat moves conversations into a slide-out drawer and places agent/model controls in an
   advanced panel that opens over the message area. Image Generation pins references, prompt, and generation actions to
-  the bottom while model, size, and count open upward over the preview. Infinite Canvas runs full screen with floating
-  back/title controls at the top left and a circular action menu at the top right.
+  the bottom while model, size, and count open upward over the preview. The Canvas library scrolls independently, while
+  the editor runs full screen with floating back/title controls at the top left and a circular action menu at the top right.
 - Agent Settings lets you edit the default assistant, add or remove chat agents, and change the Infinite Canvas
   prompt-generation rule. System prompts support `{{date}}`, `{{time}}`, `{{datetime}}`, `{{system}}`, `{{arch}}`,
   `{{language}}`, `{{model_name}}`, and `{{username}}` variables.
@@ -67,8 +67,9 @@ image and chat APIs, including compatible third-party relay services.
 ### Infinite Canvas details
 
 - The canvas library supports creating, opening, renaming, and confirmed deletion of documents.
-- Text nodes can generate text children. Image nodes can add or replace references and choose auto, preset, or custom
-  dimensions per generation node; generation reads only directly connected upstream nodes.
+- Manually added text or image nodes are placed at the center of the current viewport. Text nodes can generate text
+  children. Image nodes can add or replace references and choose auto, preset, or custom dimensions per generation node;
+  generation reads only directly connected upstream nodes.
 - Manual and automatic edges use different styles, and manual edges can be disconnected with a double-click. Node images
   provide actions to copy prompts or images and save files.
 - New canvases open at 60% zoom, and the current viewport and document contents are continuously persisted.
@@ -188,7 +189,9 @@ and all network requests go through `src/composables/fetch/index.ts`.
 ## Download
 
 Download installers from the [Releases](../../releases) page. Release builds support Windows (x86, x86_64, arm64),
-Linux (x86_64, arm64), macOS (Intel, Apple Silicon), and Android (arm64 APK).
+Linux (x86_64, arm64), macOS (Intel, Apple Silicon), and Android (arm64 APK). Release notes contain the current base
+version sections from `CHANGES.en.md` and `CHANGES.md`, a full comparison link between adjacent builds, and the
+platform download table.
 
 ## License
 
