@@ -15,7 +15,7 @@ const {appMode, appBusy, setAppMode, viewModel} = useAppController();
 </script>
 
 <template>
-  <main class="app">
+  <main class="app" :class="{'canvas-editor-open': appMode === 'canvas' && !viewModel.canvasLibraryOpen}">
     <aside class="nav-rail" aria-label="工作区导航">
       <nav class="workspace-nav">
         <a-button

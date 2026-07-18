@@ -8,8 +8,8 @@ English | [简体中文](README.md)
 
 </div>
 
-GugleAI is a desktop AI workspace built with Tauri 2, Vue 3, and TypeScript. It works with OpenAI-compatible image and
-chat APIs, including compatible third-party relay services.
+GugleAI is a desktop and Android AI workspace built with Tauri 2, Vue 3, and TypeScript. It works with OpenAI-compatible
+image and chat APIs, including compatible third-party relay services.
 
 ## Screenshots
 
@@ -43,6 +43,11 @@ chat APIs, including compatible third-party relay services.
   (`_type: "newapi_channel_conn"`) or the `base_url` in a Codex CLI `config.toml`.
 - Settings contains Model, Agent, General, Logs, and Backup pages. General Settings provides a user name,
   Light/Dark/Follow System themes, a title-generation model, and startup update checks.
+- Narrow screens and Android use bottom workspace navigation with system safe-area handling. Settings uses category,
+  provider, and detail levels. Chat moves conversations into a slide-out drawer and places agent/model controls in an
+  advanced panel that opens over the message area. Image Generation pins references, prompt, and generation actions to
+  the bottom while model, size, and count open upward over the preview. Infinite Canvas runs full screen with floating
+  back/title controls at the top left and a circular action menu at the top right.
 - Agent Settings lets you edit the default assistant, add or remove chat agents, and change the Infinite Canvas
   prompt-generation rule. System prompts support `{{date}}`, `{{time}}`, `{{datetime}}`, `{{system}}`, `{{arch}}`,
   `{{language}}`, `{{model_name}}`, and `{{username}}` variables.
@@ -98,6 +103,7 @@ chat APIs, including compatible third-party relay services.
 - [Node.js 20.19 or newer](https://nodejs.org/)
 - [pnpm](https://pnpm.io/)
 - [Rust](https://www.rust-lang.org/)
+- Android builds also require JDK 17, the Android SDK and NDK, and the `aarch64-linux-android` Rust target
 
 The project uses `pnpm` for frontend dependencies and Cargo for Rust dependencies. Do not mix npm, Yarn, or other lock
 files.
@@ -116,7 +122,17 @@ pnpm build
 
 # Build desktop installers
 pnpm tauri build
+
+# Initialize the Android project once
+pnpm tauri android init
+
+# Build the Android arm64 APK
+pnpm tauri android build --target aarch64 --apk
 ```
+
+The Android release job signs APKs with the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` GitHub Actions Secrets. If the complete signing configuration is not
+available, desktop releases continue while the Android build and upload are skipped.
 
 On first launch, open **Settings → Model Settings**, add a provider with its endpoint and API key, then add or edit its
 models.
@@ -152,6 +168,8 @@ src/
 src-tauri/
 ├─ src/lib.rs                # File saving, log rotation, and proxy commands
 ├─ capabilities/             # Minimal Tauri permissions
+├─ icons/android/            # Android launcher icon sources
+├─ tauri.android.conf.json   # Android pre-build icon synchronization
 └─ tauri.conf.json           # App and build configuration
 ```
 
@@ -169,8 +187,8 @@ and all network requests go through `src/composables/fetch/index.ts`.
 
 ## Download
 
-Download installers from the [Releases](../../releases) page. Release builds support Windows (x86, x86_64, arm64), Linux
-(x86_64, arm64), and macOS (Intel, Apple Silicon).
+Download installers from the [Releases](../../releases) page. Release builds support Windows (x86, x86_64, arm64),
+Linux (x86_64, arm64), macOS (Intel, Apple Silicon), and Android (arm64 APK).
 
 ## License
 

@@ -30,6 +30,10 @@
   flex-direction: column;
 }
 
+.canvas-mobile-node-menu {
+  display: none;
+}
+
 .canvas-library-toolbar {
   flex: 0 0 auto;
 }

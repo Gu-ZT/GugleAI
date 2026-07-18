@@ -53,6 +53,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
       </a-scrollbar>
     </section>
 
+    <div class="image-mobile-controls">
     <section class="image-generation-config" aria-labelledby="image-generation-config-title">
       <a-button
           id="image-generation-config-title"
@@ -64,7 +65,45 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
         <span>高级配置</span>
         <span class="chevron" :class="{ open: advancedOpen }" aria-hidden="true"></span>
       </a-button>
-      <div v-if="advancedOpen" class="image-generation-config-grid">
+      <a-scrollbar
+          v-if="advancedOpen"
+          outer-class="image-generation-config-scroll"
+          class="image-generation-config-grid"
+          :disable-horizontal="true"
+      >
+        <div class="field image-mobile-advanced-field">
+          <span class="field-label">模型</span>
+          <a-select
+              v-model="app.imageModelSelection"
+              :options="app.imageModelSelectOptions"
+              :disabled="app.imageModelGroups.length === 0"
+              class="model-provider-select"
+          >
+            <template #label="{data}">
+              <span class="selected-model-label">{{ data.label }}</span>
+              <a-tag v-if="data.providerName" size="small" class="model-provider-tag">{{ data.providerName }}</a-tag>
+            </template>
+          </a-select>
+        </div>
+        <div class="field image-mobile-advanced-field">
+          <span class="field-label">尺寸</span>
+          <a-select v-model="app.size">
+            <a-option value="auto">自动</a-option>
+            <a-option value="1024x1024">1024×1024</a-option>
+            <a-option value="1536x1024">1536×1024（横）</a-option>
+            <a-option value="1024x1536">1024×1536（竖）</a-option>
+            <a-option value="custom">自定义</a-option>
+          </a-select>
+        </div>
+        <div v-if="app.size === 'custom'" class="custom-size-inputs image-mobile-advanced-field" aria-label="自定义尺寸">
+          <label>宽度<a-input-number v-model="app.customWidth" :min="1" :step="1"/></label>
+          <span aria-hidden="true">×</span>
+          <label>高度<a-input-number v-model="app.customHeight" :min="1" :step="1"/></label>
+        </div>
+        <label class="image-mobile-advanced-field">
+          数量
+          <a-input-number v-model="app.count" :min="1" :max="10" :step="1"/>
+        </label>
         <div class="field">
           <span class="field-label">接口模式</span>
           <a-select v-model="app.apiMode">
@@ -146,9 +185,10 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
           重试次数
           <a-input-number v-model="app.retryCount" :disabled="!app.retryEnabled" :min="1" :max="20"/>
         </label>
-      </div>
+      </a-scrollbar>
     </section>
 
+    <div class="image-generation-dock">
     <div class="ref-images">
       <div v-for="(img, index) in app.refImages" :key="img.previewUrl" class="ref-thumb">
         <img :src="img.previewUrl" :alt="img.file.name" :title="img.file.name"/>
@@ -237,6 +277,8 @@ onUnmounted(() => document.removeEventListener("pointerdown", closeRetryPicker))
         {{ app.stopping ? "停止中..." : "停止" }}
       </a-button>
       <a-button v-else type="primary" class="image-generate-action" @click="app.generate">生成 (Ctrl+Enter)</a-button>
+    </div>
+    </div>
     </div>
   </section>
 </template>

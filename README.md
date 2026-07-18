@@ -8,7 +8,7 @@
 
 </div>
 
-GugleAI 是一个基于 Tauri 2、Vue 3 和 TypeScript 的桌面 AI 工作台，兼容 OpenAI 风格的图像和聊天接口，也支持配置第三方中转服务。
+GugleAI 是一个基于 Tauri 2、Vue 3 和 TypeScript 的桌面与 Android AI 工作台，兼容 OpenAI 风格的图像和聊天接口，也支持配置第三方中转服务。
 
 ## 界面预览
 
@@ -35,6 +35,7 @@ GugleAI 是一个基于 Tauri 2、Vue 3 和 TypeScript 的桌面 AI 工作台，
 - 在图像生成页面按 `Ctrl+V` 可以直接导入连接配置，支持 newapi 渠道 JSON（`_type: "newapi_channel_conn"`）和 Codex CLI
   `config.toml` 中的 `base_url`。
 - 设置页包含模型、智能体、通用、日志和备份五个子页面。通用设置支持用户名、浅色/深色/跟随系统主题、对话标题模型和启动时自动检查更新。
+- 窄屏和 Android 使用避让系统安全区的底部工作区导航；设置采用分类、提供商和详情的分级页面。聊天会话列表使用侧滑抽屉，模型和智能体收进向上覆盖消息区的高级配置；生图将参考图、提示词和生成按钮吸附在底部，模型、尺寸和数量收进向上覆盖预览区的高级配置；无尽画布编辑器全屏显示，左上悬浮返回和画布名称，右上通过圆形加号展开节点与清空操作。
 - 智能体设置可以编辑默认助手、添加或删除聊天智能体，并修改无尽画布的提示词生成规则。系统提示词支持 `{{date}}`、`{{time}}`、
   `{{datetime}}`、`{{system}}`、`{{arch}}`、`{{language}}`、`{{model_name}}` 和 `{{username}}` 变量。
 
@@ -79,6 +80,7 @@ GugleAI 是一个基于 Tauri 2、Vue 3 和 TypeScript 的桌面 AI 工作台，
 - [Node.js 20.19 或更高版本](https://nodejs.org/)
 - [pnpm](https://pnpm.io/)
 - [Rust](https://www.rust-lang.org/)
+- 构建 Android 时还需要 JDK 17、Android SDK、NDK 和 `aarch64-linux-android` Rust target
 
 项目使用 `pnpm` 管理前端依赖，使用 Cargo 管理 Rust 依赖，请不要混用 npm、Yarn 或其他锁文件。
 
@@ -96,7 +98,16 @@ pnpm build
 
 # 构建桌面安装包
 pnpm tauri build
+
+# 首次初始化 Android 工程
+pnpm tauri android init
+
+# 构建 Android arm64 APK
+pnpm tauri android build --target aarch64 --apk
 ```
+
+Android 发布工作流使用 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 和
+`ANDROID_KEY_PASSWORD` 四个 GitHub Actions Secrets 签名 APK。未配置完整签名信息时，桌面发布仍会继续，但会跳过 Android 构建和上传。
 
 首次运行后，在“设置 → 模型设置”中添加提供商，填写 API 地址和 API Key，再添加或编辑模型即可开始使用。
 
@@ -128,6 +139,8 @@ src/
 src-tauri/
 ├─ src/lib.rs                # 保存文件、日志轮转和系统代理命令
 ├─ capabilities/             # Tauri 最小权限配置
+├─ icons/android/            # Android launcher 图标源文件
+├─ tauri.android.conf.json   # Android 构建前图标同步配置
 └─ tauri.conf.json           # 应用和构建配置
 ```
 
@@ -142,8 +155,8 @@ src-tauri/
 
 ## 下载
 
-前往 [Releases](../../releases) 下载对应平台的安装包。发布构建支持 Windows（x86、x86_64、arm64）、Linux（x86_64、arm64）和
-macOS（Intel、Apple Silicon）。
+前往 [Releases](../../releases) 下载对应平台的安装包。发布构建支持 Windows（x86、x86_64、arm64）、Linux（x86_64、arm64）、
+macOS（Intel、Apple Silicon）和 Android（arm64 APK）。
 
 ## 许可证
 

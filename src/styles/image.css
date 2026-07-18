@@ -85,6 +85,15 @@
   gap: 10px;
 }
 
+.image-mobile-controls,
+.image-generation-dock {
+  display: contents;
+}
+
+.image-mobile-advanced-field {
+  display: none;
+}
+
 .image-primary-options {
   display: flex;
   flex-wrap: wrap;

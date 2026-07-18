@@ -2,6 +2,13 @@
 
 Release headings use the base semantic version; `+build.N` is a build identifier, so multiple builds of the same base version are combined.
 
+## [1.1.0] - 2026-07-18
+
+- Added responsive layouts for narrow screens and Android, including bottom workspace navigation, hierarchical settings, a slide-out Chat conversation list, mobile Image controls, and a full-screen Infinite Canvas.
+- Improved scrolling in the mobile Image advanced panel and removed duplicate model, size, and count controls from the bottom dock.
+- Refined the mobile Chat and Infinite Canvas title bars and fixed Android launcher icon synchronization.
+- Added an Android arm64 APK release build with GitHub Secrets signing and upload to the matching Release.
+
 ## [1.0.1] - 2026-07-18
 
 - Corrected the name of the recommended AI service provider

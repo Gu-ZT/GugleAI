@@ -1,13 +1,25 @@
 <script setup lang="ts">
-import {IconDelete, IconPlus} from "@arco-design/web-vue/es/icon";
+import {ref} from "vue";
+import {IconArrowLeft, IconDelete, IconPlus} from "@arco-design/web-vue/es/icon";
 
-defineProps<{ app: any }>();
+const props = defineProps<{ app: any }>();
+const mobileProviderOpen = ref(false);
+
+function selectProvider(id: string) {
+  props.app.selectProvider(id);
+  mobileProviderOpen.value = true;
+}
+
+function addProvider() {
+  props.app.addProviderDraft();
+  mobileProviderOpen.value = true;
+}
 </script>
 
 <template>
   <div class="settings-section provider-settings-section">
     <h2>模型设置</h2>
-    <div class="provider-settings-layout">
+    <div class="provider-settings-layout" :class="{'mobile-provider-open': mobileProviderOpen}">
       <aside class="provider-sidebar" aria-label="提供商列表">
         <a-scrollbar outer-class="provider-list" class="provider-list-container" :disable-horizontal="true">
           <a-button
@@ -17,14 +29,14 @@ defineProps<{ app: any }>();
               class="provider-list-item"
               :class="{ active: app.selectedProviderId === provider.id }"
               :title="provider.name"
-              @click="app.selectProvider(provider.id)"
+              @click="selectProvider(provider.id)"
           >
             <span>{{ provider.name }}</span>
             <small v-if="app.providerDraftIsNew && app.selectedProviderId === provider.id">未保存</small>
             <small v-else>{{ provider.models.length }} 个模型</small>
           </a-button>
         </a-scrollbar>
-        <a-button type="outline" class="provider-add-button" @click="app.addProviderDraft">
+        <a-button type="outline" class="provider-add-button" @click="addProvider">
           <template #icon>
             <IconPlus/>
           </template>
@@ -39,6 +51,10 @@ defineProps<{ app: any }>();
           :disable-horizontal="true"
       >
         <form class="provider-editor" @submit.prevent="app.saveConnectionDraft">
+          <a-button type="text" class="provider-mobile-back" @click="mobileProviderOpen = false">
+            <template #icon><IconArrowLeft/></template>
+            返回提供商列表
+          </a-button>
           <div class="provider-detail-alert">
             <a-alert :show-icon="false">
               推荐使用

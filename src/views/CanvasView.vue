@@ -4,6 +4,7 @@ import {Handle, Position, VueFlow, type ViewportTransform, type VueFlowStore} fr
 import {
   IconArrowLeft,
   IconClose,
+  IconDelete,
   IconFolder,
   IconPlus,
   IconRefresh,
@@ -15,6 +16,7 @@ import "@vue-flow/core/dist/theme-default.css";
 const props = defineProps<{app: any}>();
 
 const canvasSelectTriggerProps = ref(createCanvasSelectTriggerProps(0.6));
+const mobileNodeMenuOpen = ref(false);
 
 watch(
     () => props.app.canvasViewport?.zoom,
@@ -113,18 +115,42 @@ function onCanvasInit(instance: VueFlowStore) {
             <span class="workspace-meta">{{ app.connectionProfiles.length }} 个 API 连接</span>
           </div>
         </div>
-        <div class="canvas-toolbar-actions">
+        <div class="canvas-toolbar-actions canvas-desktop-actions">
           <a-button size="small" @click="app.addCanvasTextNode">
             <template #icon><IconPlus/></template>
-            文字节点
+            <span class="canvas-toolbar-label">文字节点</span>
           </a-button>
           <a-button size="small" @click="app.addCanvasImageNode">
             <template #icon><IconPlus/></template>
-            图像节点
+            <span class="canvas-toolbar-label">图像节点</span>
           </a-button>
           <a-button size="small" status="danger" :disabled="app.canvasNodes.length === 0" @click="app.clearCanvas">
-            清空画布
+            <template #icon><IconDelete/></template>
+            <span class="canvas-toolbar-label">清空画布</span>
           </a-button>
+        </div>
+        <div class="canvas-mobile-node-menu">
+          <a-button
+              type="primary"
+              shape="circle"
+              class="canvas-mobile-add-toggle"
+              :class="{open: mobileNodeMenuOpen}"
+              :aria-expanded="mobileNodeMenuOpen"
+              title="画布操作"
+              aria-label="画布操作"
+              @click="mobileNodeMenuOpen = !mobileNodeMenuOpen"
+          ><IconPlus/></a-button>
+          <div v-if="mobileNodeMenuOpen" class="canvas-mobile-node-options">
+            <a-button @click="app.addCanvasTextNode(); mobileNodeMenuOpen = false">
+              <template #icon><IconPlus/></template>文字节点
+            </a-button>
+            <a-button @click="app.addCanvasImageNode(); mobileNodeMenuOpen = false">
+              <template #icon><IconPlus/></template>图像节点
+            </a-button>
+            <a-button status="danger" :disabled="app.canvasNodes.length === 0" @click="app.clearCanvas(); mobileNodeMenuOpen = false">
+              <template #icon><IconDelete/></template>清空画布
+            </a-button>
+          </div>
         </div>
       </div>
       <div class="canvas-shell">

@@ -316,3 +316,7 @@
   min-width: 100px;
 }
 
+.chat-mobile-advanced {
+  display: none;
+}
+

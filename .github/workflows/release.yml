@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "src-tauri/**"
+      - "scripts/**"
       - "public/**"
       - "index.html"
       - "package.json"
@@ -138,9 +139,123 @@ jobs:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           args: ${{ matrix.args }}
 
+  android:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Android signing configuration
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Android signing secrets are incomplete; skipping the Android release build."
+          fi
+
+      - name: Set app version from tag
+        if: steps.signing.outputs.configured == 'true' && github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG#v}" node -e "
+            const fs = require('fs');
+            const p = 'src-tauri/tauri.conf.json';
+            const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+            c.version = process.env.VERSION;
+            fs.writeFileSync(p, JSON.stringify(c, null, 2));
+          "
+
+      - uses: pnpm/action-setup@v4
+        if: steps.signing.outputs.configured == 'true'
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        if: steps.signing.outputs.configured == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        if: steps.signing.outputs.configured == 'true'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        if: steps.signing.outputs.configured == 'true'
+
+      - name: Install Android SDK and NDK
+        if: steps.signing.outputs.configured == 'true'
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.signing.outputs.configured == 'true'
+        with:
+          targets: aarch64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        if: steps.signing.outputs.configured == 'true'
+        with:
+          workspaces: src-tauri
+          key: android-aarch64
+
+      - name: Install dependencies
+        if: steps.signing.outputs.configured == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Initialize Android project
+        if: steps.signing.outputs.configured == 'true'
+        run: pnpm tauri android init --ci --skip-targets-install
+
+      - name: Build Android arm64 APK
+        if: steps.signing.outputs.configured == 'true'
+        run: pnpm tauri android build --target aarch64 --apk --ci
+
+      - name: Sign Android APK
+        if: steps.signing.outputs.configured == 'true'
+        id: apk
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > release.keystore
+          UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name '*release-unsigned.apk' -print -quit)
+          test -n "$UNSIGNED_APK"
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          OUTPUT_APK="GugleAI-${VERSION}-android-arm64.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f 4 "$UNSIGNED_APK" aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks release.keystore \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$STORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out "$OUTPUT_APK" \
+            aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$OUTPUT_APK"
+          echo "path=$OUTPUT_APK" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Android APK
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          APK: ${{ steps.apk.outputs.path }}
+        run: gh release upload "$TAG" "$APK" --clobber
+
   # 所有平台构建完成后,在 release 描述末尾生成按平台分类的下载表格
   update-release-notes:
-    needs: [prepare, build]
+    needs: [prepare, build, android]
     if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -161,6 +276,7 @@ jobs:
             [/_arm64-setup\.exe$/,    "Windows", "arm64",                 "NSIS 安装包"],
             [/_x64[^/]*\.msi$/,       "Windows", "x86_64",                "MSI 安装包"],
             [/_x86[^/]*\.msi$/,       "Windows", "x86 (32位)",            "MSI 安装包"],
+            [/-android-arm64\.apk$/,  "Android", "arm64",                 "APK"],
             [/_amd64\.deb$/,          "Linux",   "x86_64",                "deb"],
             [/_arm64\.deb$/,          "Linux",   "arm64",                 "deb"],
             [/\.x86_64\.rpm$/,        "Linux",   "x86_64",                "rpm"],

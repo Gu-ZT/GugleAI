@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import {ref} from "vue";
-import {IconCheck, IconCopy, IconDelete, IconEdit, IconPlus, IconStop} from "@arco-design/web-vue/es/icon";
+import {IconCheck, IconClose, IconCopy, IconDelete, IconEdit, IconMenu, IconPlus, IconStop} from "@arco-design/web-vue/es/icon";
 
 const props = defineProps<{app: any}>();
 const editingConversationId = ref("");
 const editingTitle = ref("");
+const mobileConversationOpen = ref(false);
+const mobileAdvancedOpen = ref(false);
 
 function startRename(conversation: any) {
   editingConversationId.value = conversation.id;
@@ -17,12 +19,22 @@ function saveRename() {
   editingConversationId.value = "";
   editingTitle.value = "";
 }
+
+function selectConversation(id: string) {
+  props.app.selectChatConversation(id);
+  mobileConversationOpen.value = false;
+}
 </script>
 
 <template>
   <section class="chat-workspace">
     <div class="chat-layout">
-      <aside class="chat-conversation-sidebar" aria-label="聊天记录">
+      <div v-if="mobileConversationOpen" class="chat-mobile-scrim" @click="mobileConversationOpen = false"></div>
+      <aside class="chat-conversation-sidebar" :class="{'mobile-open': mobileConversationOpen}" aria-label="聊天记录">
+        <div class="chat-mobile-drawer-header">
+          <strong>聊天记录</strong>
+          <a-button type="text" shape="circle" aria-label="关闭聊天记录" @click="mobileConversationOpen = false"><IconClose/></a-button>
+        </div>
         <a-button type="outline" class="new-conversation-button" :disabled="app.chatLoading" @click="app.createChatConversation">
           <IconPlus aria-hidden="true"/><span>新建对话</span>
         </a-button>
@@ -38,7 +50,7 @@ function saveRename() {
               <a-button type="text" html-type="submit" title="保存名称" aria-label="保存名称"><IconCheck/></a-button>
             </form>
             <template v-else>
-              <a-button type="text" class="conversation-select" :title="conversation.title" @click="app.selectChatConversation(conversation.id)" @dblclick="startRename(conversation)">
+              <a-button type="text" class="conversation-select" :title="conversation.title" @click="selectConversation(conversation.id)" @dblclick="startRename(conversation)">
                 <span class="conversation-title">{{ conversation.title }}</span>
                 <span class="conversation-count">{{ conversation.messages.length }} 条消息</span>
               </a-button>
@@ -54,6 +66,7 @@ function saveRename() {
       <div class="chat-main">
         <div class="workspace-toolbar">
           <div>
+            <a-button type="text" shape="circle" class="chat-mobile-menu" title="聊天记录" aria-label="聊天记录" @click="mobileConversationOpen = true"><IconMenu/></a-button>
             <strong>{{ app.activeChatConversation?.title || '默认标题' }}</strong>
           </div>
           <a-button size="small" :disabled="app.chatLoading || app.chatMessages.length === 0" @click="app.clearChat">清空当前对话</a-button>
@@ -84,6 +97,41 @@ function saveRename() {
         </a-scrollbar>
         <p v-if="app.chatError" class="error">{{ app.chatError }}</p>
         <div class="chat-composer">
+          <div class="chat-mobile-advanced">
+            <a-button
+                type="text"
+                class="advanced-config-toggle"
+                :aria-expanded="mobileAdvancedOpen"
+                @click="mobileAdvancedOpen = !mobileAdvancedOpen"
+            >
+              <span>高级配置</span>
+              <span class="chevron" :class="{open: mobileAdvancedOpen}" aria-hidden="true"></span>
+            </a-button>
+            <div v-if="mobileAdvancedOpen" class="chat-mobile-advanced-panel">
+              <div class="action-agent-picker">
+                <span class="field-label">智能体</span>
+                <a-select
+                    v-model="app.selectedChatAgentId"
+                    :options="app.chatAgentSelectOptions"
+                    :disabled="app.chatLoading || app.chatAgentSelectOptions.length === 0"
+                />
+              </div>
+              <div class="action-model-picker">
+                <span class="field-label">模型</span>
+                <a-select
+                    v-model="app.chatModelSelection"
+                    :options="app.textModelSelectOptions"
+                    :disabled="app.textModelGroups.length === 0"
+                    class="model-provider-select"
+                >
+                  <template #label="{data}">
+                    <span class="selected-model-label">{{ data.label }}</span>
+                    <a-tag v-if="data.providerName" size="small" class="model-provider-tag">{{ data.providerName }}</a-tag>
+                  </template>
+                </a-select>
+              </div>
+            </div>
+          </div>
           <a-textarea v-model="app.chatDraft" :auto-size="{ minRows: 4, maxRows: 8 }" placeholder="输入消息..." @keydown.ctrl.enter="app.sendChatMessage"/>
           <div class="chat-actions">
             <div class="action-agent-picker">
