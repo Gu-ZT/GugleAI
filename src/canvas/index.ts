@@ -34,6 +34,9 @@ export interface CanvasNodeData {
   prompt: string;
   references: CanvasImageAsset[];
   outputs: CanvasImageAsset[];
+  size: string;
+  customWidth: number;
+  customHeight: number;
   count: number;
   status: CanvasNodeStatus;
   error: string;
@@ -373,7 +376,7 @@ export class CanvasGraph {
       id: this.nextId(type),
       type,
       position: {x, y},
-      width: type === "text" ? 300 : 320,
+      width: type === "text" ? 300 : 360,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       draggable: true,
@@ -387,6 +390,9 @@ export class CanvasGraph {
         prompt: "",
         references: [],
         outputs: [],
+        size: "auto",
+        customWidth: 1024,
+        customHeight: 1024,
         count: 1,
         status: "idle",
         error: "",

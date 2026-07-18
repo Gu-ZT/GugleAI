@@ -35,7 +35,7 @@ function removeAgent() {
               <strong>提示词生成</strong>
             </div>
           </div>
-          <label>
+          <label class="agent-system-prompt-field">
             系统提示词
             <a-textarea
                 v-model="app.canvasPromptSystemPrompt"
@@ -90,7 +90,7 @@ function removeAgent() {
               名称
               <a-input v-model="editingAgent.name" :max-length="80" placeholder="智能体名称"/>
             </label>
-            <label>
+            <label class="agent-system-prompt-field">
               系统提示词
               <a-textarea
                   v-model="editingAgent.systemPrompt"

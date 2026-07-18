@@ -282,6 +282,11 @@
   transform-origin: bottom left;
 }
 
+.canvas-model-popup .arco-select-dropdown-list-wrapper {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 .canvas-node-delete {
   width: 26px;
   height: 26px;
@@ -385,22 +390,66 @@
 }
 
 .canvas-image-options {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
+  grid-template-columns: auto 66px;
+  align-items: end;
   justify-content: space-between;
   gap: 8px;
 }
 
-.canvas-image-options label {
+.canvas-image-options > .arco-btn {
+  width: auto;
+  justify-self: start;
+}
+
+.canvas-image-options label.canvas-count-option {
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
 }
 
 .canvas-image-options .arco-input-number {
   width: 66px;
+}
+
+.canvas-node-actions .canvas-size-action {
+  display: flex;
+  width: 116px;
+  min-width: 0;
+  flex: 0 0 116px;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+}
+
+.canvas-size-action > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.canvas-size-action .arco-select {
+  width: 84px;
+  min-width: 0;
+}
+
+.canvas-custom-size-action {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 114px;
+  align-items: center;
+  gap: 4px;
+}
+
+.canvas-custom-size-action .arco-input-number {
+  width: 51px;
+  min-width: 0;
+}
+
+.canvas-custom-size-action > span {
+  flex: 0 0 auto;
+  color: var(--color-text-4);
 }
 
 .canvas-reference-actions {

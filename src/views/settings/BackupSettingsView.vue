@@ -43,7 +43,7 @@ const backupInput = ref<HTMLInputElement | null>(null);
     </a-scrollbar>
 
     <h3>自动备份</h3>
-    <div class="backup-form-grid">
+    <div class="backup-form-grid backup-auto-grid">
       <label class="backup-switch-field">
         <span>启用自动备份</span>
         <a-switch v-model="app.autoBackupEnabled" />
@@ -61,7 +61,7 @@ const backupInput = ref<HTMLInputElement | null>(null);
 
     <h3>WebDAV</h3>
     <div class="backup-form-grid">
-      <label class="backup-switch-field">
+      <label class="backup-switch-field settings-form-wide">
         <span>启用 WebDAV 同步</span>
         <a-switch v-model="app.webdavEnabled" />
       </label>
@@ -69,7 +69,7 @@ const backupInput = ref<HTMLInputElement | null>(null);
         <span>WebDAV 地址</span>
         <a-input v-model="app.webdavUrl" placeholder="https://dav.example.com/remote.php/dav/files/user" />
       </label>
-      <label>
+      <label class="settings-form-wide">
         <span>远程目录</span>
         <a-input v-model="app.webdavPath" placeholder="gugle-ai-backups" />
       </label>

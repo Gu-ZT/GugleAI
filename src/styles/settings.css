@@ -65,18 +65,28 @@
 }
 
 .settings-subpage {
+  height: 100%;
   min-width: 0;
   min-height: 0;
 }
 
 .settings-subpage-container {
+  display: flex;
   height: 100%;
+  min-height: 100%;
+  min-width: 0;
+  flex-direction: column;
   overflow-y: auto;
   padding-right: 2px;
 }
 
+.settings-subpage-container > .agent-settings-section {
+  flex: 1 0 100%;
+  height: 100%;
+}
+
 .settings-section {
-  width: min(760px, 100%);
+  width: 100%;
 }
 
 .settings-section h2 {
@@ -109,16 +119,51 @@
 
 .agent-settings-section {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-settings-tabs {
+  display: flex;
+  height: calc(100% - 34px);
+  min-height: 0;
+  flex: 0 0 calc(100% - 34px);
+  flex-direction: column;
 }
 
 .agent-settings-tabs .arco-tabs-content {
   padding-top: 14px;
+  min-height: 0;
+  flex: 1;
+}
+
+.agent-settings-tabs .arco-tabs-content-list,
+.agent-settings-tabs .arco-tabs-content-item {
+  height: 100%;
+  min-height: 0;
+}
+
+.agent-settings-tabs .arco-tabs-content-list {
+  flex: 1;
+}
+
+.agent-settings-tabs .arco-tabs-content-item-active {
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-settings-tabs .arco-tabs-content-item-active > * {
+  flex: 1;
+  min-height: 0;
 }
 
 .agent-prompt-editor {
   display: flex;
-  width: min(760px, 100%);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
   gap: 14px;
 }
@@ -155,6 +200,22 @@
 
 .agent-prompt-editor .arco-textarea-wrapper {
   width: 100%;
+}
+
+.agent-system-prompt-field {
+  min-height: 0;
+  flex: 1;
+}
+
+.agent-system-prompt-field .arco-textarea-wrapper {
+  min-height: 0;
+  flex: 1;
+}
+
+.agent-system-prompt-field .arco-textarea {
+  height: 100%;
+  min-height: 0;
+  resize: vertical;
 }
 
 .prompt-variables {
@@ -201,6 +262,7 @@
 
 .chat-agent-settings-layout {
   display: grid;
+  height: 100%;
   min-height: 440px;
   grid-template-columns: 176px minmax(0, 1fr);
   gap: 14px;
@@ -312,7 +374,7 @@
 }
 
 .backup-settings-section {
-  width: min(860px, 100%);
+  width: 100%;
 }
 
 .backup-toolbar-actions,
@@ -408,6 +470,10 @@
   gap: 12px;
 }
 
+.backup-auto-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .backup-form-grid label {
   min-width: 0;
 }
@@ -418,7 +484,7 @@
   width: 100%;
 }
 
-.backup-switch-field {
+.backup-form-grid label.backup-switch-field {
   display: flex;
   min-height: 32px;
   flex-direction: row;

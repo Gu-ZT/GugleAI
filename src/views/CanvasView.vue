@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import {onMounted, ref} from "vue";
-import {Handle, Position, VueFlow, type ViewportTransform} from "@vue-flow/core";
+import {onMounted, ref, watch} from "vue";
+import {Handle, Position, VueFlow, type ViewportTransform, type VueFlowStore} from "@vue-flow/core";
 import {
   IconArrowLeft,
   IconClose,
@@ -16,7 +16,23 @@ const props = defineProps<{app: any}>();
 
 const canvasSelectTriggerProps = ref(createCanvasSelectTriggerProps(0.6));
 
-onMounted(() => void props.app.enterCanvasWorkspace());
+watch(
+    () => props.app.canvasViewport?.zoom,
+    (zoom) => {
+      if (Number.isFinite(zoom) && zoom > 0) {
+        canvasSelectTriggerProps.value = createCanvasSelectTriggerProps(zoom);
+      }
+    },
+    {immediate: true}
+);
+
+onMounted(async () => {
+  await props.app.enterCanvasWorkspace();
+  const zoom = Number(props.app.canvasViewport?.zoom);
+  if (Number.isFinite(zoom) && zoom > 0) {
+    canvasSelectTriggerProps.value = createCanvasSelectTriggerProps(zoom);
+  }
+});
 
 function createCanvasSelectTriggerProps(zoom: number) {
   return {
@@ -32,6 +48,10 @@ function onCanvasViewportChange(viewport: ViewportTransform) {
   canvasSelectTriggerProps.value = createCanvasSelectTriggerProps(viewport.zoom);
   props.app.updateCanvasViewport(viewport);
   props.app.closeCanvasImageContextMenu();
+}
+
+function onCanvasInit(instance: VueFlowStore) {
+  canvasSelectTriggerProps.value = createCanvasSelectTriggerProps(instance.viewport.value.zoom);
 }
 </script>
 
@@ -117,6 +137,7 @@ function onCanvasViewportChange(viewport: ViewportTransform) {
             :min-zoom="0.2"
             :max-zoom="2.5"
             :default-viewport="app.canvasViewport"
+            @init="onCanvasInit"
             @viewport-change="onCanvasViewportChange"
             @connect="app.onCanvasConnect"
             @update:nodes="app.onCanvasNodesUpdate"
@@ -212,7 +233,7 @@ function onCanvasViewportChange(viewport: ViewportTransform) {
                 <div class="canvas-image-options nodrag">
                   <a-button class="secondary-action" @click.stop="app.openCanvasImagePicker(id)"><template #icon><IconPlus/></template>添加参考图</a-button>
                   <input :id="`canvas-image-input-${id}`" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="app.onCanvasImageFiles(id, $event)"/>
-                  <label>
+                  <label class="canvas-count-option">
                     数量
                     <a-input-number
                         :model-value="data.count"
@@ -226,6 +247,50 @@ function onCanvasViewportChange(viewport: ViewportTransform) {
                 <div class="canvas-node-actions nodrag">
                   <span v-if="data.status === 'success'" class="canvas-node-success">已生成</span>
                   <span v-if="data.status === 'running'" class="canvas-node-status">生成中...</span>
+                  <div class="canvas-size-action">
+                    <span>尺寸</span>
+                    <a-select
+                        :model-value="data.size"
+                        :trigger-props="canvasSelectTriggerProps"
+                        :disabled="data.status === 'running'"
+                        class="canvas-size-select"
+                        @mousedown.stop
+                        @pointerdown.stop
+                        @click.stop
+                        @update:model-value="app.updateCanvasNodeData(id, {size: $event})"
+                    >
+                      <a-option value="auto">自动</a-option>
+                      <a-option value="1024x1024">1024×1024</a-option>
+                      <a-option value="1536x1024">1536×1024（横）</a-option>
+                      <a-option value="1024x1536">1024×1536（竖）</a-option>
+                      <a-option value="custom">自定义</a-option>
+                    </a-select>
+                  </div>
+                  <div v-if="data.size === 'custom'" class="canvas-custom-size-action">
+                    <a-input-number
+                        :model-value="data.customWidth"
+                        :min="1"
+                        :step="1"
+                        :hide-button="true"
+                        aria-label="自定义宽度"
+                        @mousedown.stop
+                        @pointerdown.stop
+                        @click.stop
+                        @update:model-value="app.updateCanvasNodeData(id, {customWidth: $event})"
+                    />
+                    <span aria-hidden="true">x</span>
+                    <a-input-number
+                        :model-value="data.customHeight"
+                        :min="1"
+                        :step="1"
+                        :hide-button="true"
+                        aria-label="自定义高度"
+                        @mousedown.stop
+                        @pointerdown.stop
+                        @click.stop
+                        @update:model-value="app.updateCanvasNodeData(id, {customHeight: $event})"
+                    />
+                  </div>
                   <a-button v-if="data.status === 'running'" status="danger" @click.stop="app.stopCanvasNode(id)"><template #icon><IconStop/></template>停止</a-button>
                   <a-button v-else type="primary" @click.stop="app.generateCanvasImage(id)">生成图片</a-button>
                 </div>

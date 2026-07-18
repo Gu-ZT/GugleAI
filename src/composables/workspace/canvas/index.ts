@@ -526,7 +526,7 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
   ): Promise<Blob[]> {
     const connection = connectionForCanvasNode(node);
     const base = connection.baseUrl;
-    const requestSize = options.generationSettings.resolvedSize();
+    const requestSize = resolveCanvasNodeSize(node.data);
     const useChat = options.generationSettings.apiMode.value === "chat"
         || (options.generationSettings.apiMode.value === "auto" && references.length > 1);
     if (useChat) {
@@ -610,6 +610,17 @@ export function useCanvasWorkspace(options: CanvasWorkspaceOptions) {
       else if (item.url) blobs.push(await imageUrlToBlob(base, item.url, signal));
     }
     return blobs.slice(0, amount);
+  }
+
+  function resolveCanvasNodeSize(data: CanvasNodeData): string | null {
+    if (data.size === "auto" || !data.size) return null;
+    if (data.size !== "custom") return data.size;
+    const width = Number(data.customWidth);
+    const height = Number(data.customHeight);
+    if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 1) {
+      throw new Error("自定义尺寸的宽度和高度必须是大于 0 的整数");
+    }
+    return `${width}x${height}`;
   }
 
   async function imageUrlToBlob(base: string, url: string, signal: AbortSignal): Promise<Blob> {
