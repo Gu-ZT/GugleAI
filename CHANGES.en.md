@@ -2,6 +2,10 @@
 
 Release headings use the base semantic version; `+build.N` is a build identifier, so multiple builds of the same base version are combined.
 
+## [1.0.1] - 2026-07-18
+
+- Corrected the name of the recommended AI service provider
+
 ## [1.0.0] - 2026-07-18
 
 - Added Image Generation, Text Chat, and Infinite Canvas workspaces, with the application shell, settings page, and nested settings pages split into router views.

@@ -42,7 +42,7 @@ defineProps<{ app: any }>();
           <div class="provider-detail-alert">
             <a-alert :show-icon="false">
               推荐使用
-              <a-link href="https://api.777358.xyz/register?aff=S9FCB8HJ6EA6" target="_blank">蓝顷AI</a-link>
+              <a-link href="https://api.777358.xyz/register?aff=S9FCB8HJ6EA6" target="_blank">蓝钦 AI</a-link>
               <template #action>
                 <a-link href="https://api.777358.xyz/register?aff=S9FCB8HJ6EA6" target="_blank">
                   <a-button>前往注册</a-button>
